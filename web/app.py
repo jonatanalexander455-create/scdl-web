@@ -428,9 +428,11 @@ def download():
     if clean_token.lower().startswith('oauth '):
         clean_token = clean_token[6:].strip()
 
+    resolve_debug = 'not_checked'
     # Auto-resolve truncated or incomplete SoundCloud URLs
     if 'soundcloud.com/' in url and 'on.soundcloud.com' not in url:
         parsed_parts = [p for p in url.rstrip('/').split('?')[0].split('/') if p and not p.startswith('http') and 'soundcloud.com' not in p]
+        resolve_debug = f'parts: {parsed_parts}'
         if len(parsed_parts) >= 2:
             uploader = parsed_parts[0]
             slug = parsed_parts[1]
@@ -438,32 +440,35 @@ def download():
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 if clean_token:
                     headers['Authorization'] = f'OAuth {clean_token}'
-                check_r = req.get(f'https://api-v2.soundcloud.com/resolve?url={url}', headers=headers, timeout=5)
+                check_r = req.get(f'https://api-v2.soundcloud.com/resolve?url={url}', headers=headers, timeout=10)
+                resolve_debug += f' | check_r: {check_r.status_code}'
                 if check_r.status_code == 404:
                     matched = False
                     # 1. Search uploader's tracks
-                    u_res = req.get(f'https://api-v2.soundcloud.com/resolve?url=https://soundcloud.com/{uploader}', headers=headers, timeout=5)
+                    u_res = req.get(f'https://api-v2.soundcloud.com/resolve?url=https://soundcloud.com/{uploader}', headers=headers, timeout=10)
+                    resolve_debug += f' | u_res: {u_res.status_code}'
                     if u_res.status_code == 200:
                         uid = u_res.json().get('id')
-                        tr_res = req.get(f'https://api-v2.soundcloud.com/users/{uid}/tracks?limit=30', headers=headers, timeout=5)
+                        tr_res = req.get(f'https://api-v2.soundcloud.com/users/{uid}/tracks?limit=30', headers=headers, timeout=10)
+                        resolve_debug += f' | tr_res: {tr_res.status_code}'
                         if tr_res.status_code == 200:
                             for t in tr_res.json().get('collection', []):
                                 perm = t.get('permalink', '')
                                 if perm.startswith(slug) or slug in perm:
-                                    app.logger.info(f"Auto-resolved truncated URL '{url}' -> '{t.get('permalink_url')}'")
                                     url = t.get('permalink_url', url)
+                                    resolve_debug += f' | matched: {url}'
                                     matched = True
                                     break
                     # 2. General tracks search fallback
                     if not matched:
-                        s_res = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={uploader} {slug}', headers=headers, timeout=5)
+                        s_res = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={uploader} {slug}', headers=headers, timeout=10)
                         if s_res.status_code == 200:
                             coll = s_res.json().get('collection', [])
                             if coll:
-                                app.logger.info(f"Search-resolved URL '{url}' -> '{coll[0].get('permalink_url')}'")
                                 url = coll[0].get('permalink_url', url)
+                                resolve_debug += f' | search_matched: {url}'
             except Exception as e:
-                app.logger.warning(f"Error resolving truncated URL: {e}")
+                resolve_debug += f' | exception: {e}'
 
     # Create a unique temporary directory for this download
     job_id = str(uuid.uuid4())
@@ -666,7 +671,7 @@ def download():
                 mirror_err = ''
                 if fallback_proc:
                     mirror_err = (fallback_proc.stderr or fallback_proc.stdout or '').strip()
-                debug_info = f"[URL: {url} | Token: {clean_token[:10]}... | DirectErr: {err_output[:200]}]"
+                debug_info = f"[URL: {url} | Token: {clean_token[:10]}... | ResDebug: {resolve_debug} | DirectErr: {err_output[:200]}]"
                 if 'how-do-i-pass-cookies-to-yt-dlp' in mirror_err or 'confirm you\'re not a bot' in mirror_err:
                     msg = f'Lagu ini memiliki enkripsi DRM SoundCloud Go+ dan dibatasi bot-check YouTube di server. {debug_info}'
                 else:
