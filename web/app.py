@@ -486,6 +486,7 @@ def download():
                     ]
                 
                 candidates = [
+                    f"ytsearch3:{clean_search} lyrics",
                     f"ytsearch3:{clean_search} audio",
                     f"ytsearch3:{clean_search}",
                 ]
@@ -497,6 +498,7 @@ def download():
                         '--no-playlist',
                         '--max-downloads', '1',
                         '--ignore-errors',
+                        '--no-abort-on-error',
                         '--extractor-args', 'youtube:player_client=android',
                         '-x', '--audio-format', audio_format,
                         '--embed-metadata',
