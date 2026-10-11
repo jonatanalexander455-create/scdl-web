@@ -461,8 +461,12 @@ def download():
                 app.logger.warning(f"Error fetching SoundCloud metadata for mirror: {e}")
             
             if not meta or not meta.get('title'):
-                slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
-                meta = {'title': slug.title(), 'artist': '', 'artwork_url': None}
+                parts = [p for p in url.rstrip('/').split('/') if p and not p.startswith('http') and 'soundcloud.com' not in p]
+                uploader = ''
+                if len(parts) >= 2:
+                    uploader = parts[-3] if parts[-2] == 'sets' and len(parts) >= 3 else parts[-2]
+                slug = parts[-1].replace('-', ' ') if parts else ''
+                meta = {'title': slug.title(), 'artist': uploader.title() if uploader else '', 'artwork_url': None}
                 
             # Step 2: Fetch audio via search mirror
             search_term = f"{meta['artist']} {meta['title']}".strip()
