@@ -440,7 +440,8 @@ def download():
                     artwork = d.get('artwork_url') or d.get('user', {}).get('avatar_url')
                     if artwork:
                         artwork = artwork.replace('-large.', '-t500x500.')
-                    meta = {'title': title, 'artist': artist, 'artwork_url': artwork}
+                    dur_ms = d.get('full_duration') or d.get('duration') or 0
+                    meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
                 elif '-' in url:
                     # Possibly truncated URL, search SoundCloud search API
                     slug = url.rstrip('/').split('/')[-1].replace('-', ' ').strip()
@@ -456,7 +457,8 @@ def download():
                             artwork = first.get('artwork_url') or first.get('user', {}).get('avatar_url')
                             if artwork:
                                 artwork = artwork.replace('-large.', '-t500x500.')
-                            meta = {'title': title, 'artist': artist, 'artwork_url': artwork}
+                            dur_ms = first.get('full_duration') or first.get('duration') or 0
+                            meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
             except Exception as e:
                 app.logger.warning(f"Error fetching SoundCloud metadata for mirror: {e}")
             
@@ -466,11 +468,12 @@ def download():
                 if len(parts) >= 2:
                     uploader = parts[-3] if parts[-2] == 'sets' and len(parts) >= 3 else parts[-2]
                 slug = parts[-1].replace('-', ' ') if parts else ''
-                meta = {'title': slug.title(), 'artist': uploader.title() if uploader else '', 'artwork_url': None}
+                meta = {'title': slug.title(), 'artist': uploader.title() if uploader else '', 'artwork_url': None, 'duration_sec': 0}
                 
-            # Step 2: Fetch audio via search mirror
+            # Step 2: Fetch audio via search mirror with Smart Duration Matcher
             search_term = f"{meta['artist']} {meta['title']}".strip()
             clean_search = ' '.join(re.sub(r'[\'\"()\[\]{}|:;<>*?]', ' ', search_term).split())
+            duration_sec = meta.get('duration_sec', 0)
             if clean_search:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 os.makedirs(job_dir, exist_ok=True)
@@ -485,27 +488,35 @@ def download():
                         and os.path.getsize(os.path.join(d, f)) > 10000
                     ]
                 
-                candidates = [
-                    f"ytsearch3:{clean_search} lyrics",
-                    f"ytsearch3:{clean_search} audio",
-                    f"ytsearch3:{clean_search}",
-                ]
+                # Smart Duration Matching: prioritize exact duration matching (+-6s), then relaxed (+-15s)
+                match_filters = []
+                if duration_sec > 10:
+                    match_filters.append(f"duration >= {max(1, duration_sec - 6)} & duration <= {duration_sec + 6}")
+                    match_filters.append(f"duration >= {max(1, duration_sec - 15)} & duration <= {duration_sec + 15}")
+                match_filters.append(None)
                 
                 fallback_proc = None
-                for q in candidates:
-                    yt_cmd = [
-                        YT_DLP,
-                        '--no-playlist',
-                        '--max-downloads', '1',
-                        '--ignore-errors',
-                        '--no-abort-on-error',
-                        '--extractor-args', 'youtube:player_client=android',
-                        '-x', '--audio-format', audio_format,
-                        '--embed-metadata',
-                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                        q
-                    ]
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                for mf in match_filters:
+                    for query in [f"ytsearch5:{clean_search}", f"ytsearch5:{clean_search} audio"]:
+                        yt_cmd = [
+                            YT_DLP,
+                            '--no-playlist',
+                            '--max-downloads', '1',
+                            '--ignore-errors',
+                            '--no-abort-on-error',
+                            '--extractor-args', 'youtube:player_client=android',
+                            '-f', '18/bestaudio/best',
+                            '-x', '--audio-format', audio_format,
+                            '--embed-metadata',
+                            '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                        ]
+                        if mf:
+                            yt_cmd.extend(['--match-filter', mf])
+                        yt_cmd.append(query)
+                        
+                        fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                        if find_valid_audio(job_dir):
+                            break
                     if find_valid_audio(job_dir):
                         break
                 
