@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — SCDL Web</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='soundcloud-logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+
+<body class="admin-body">
+    <div class="bg-blob blob-1"></div>
+    <div class="bg-blob blob-2"></div>
+    <div class="bg-blob blob-3"></div>
+
+    <div class="app app-wide">
+        <!-- Top Bar -->
+        <div class="topbar">
+            <h2 class="topbar-title">👑 Admin Panel</h2>
+            <div class="topbar-actions">
+                <a href="/" class="topbar-link">🏠 Home</a>
+                <a href="/logout" class="topbar-link topbar-link-danger">Logout</a>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="admin-stats">
+            <div class="stat-card">
+                <div class="stat-number">{{ users|length }}</div>
+                <div class="stat-label">Total Pelanggan</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ users|selectattr('is_active')|list|length }}</div>
+                <div class="stat-label">Aktif</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{ users|rejectattr('is_active')|list|length }}</div>
+                <div class="stat-label">Expired</div>
+            </div>
+        </div>
+
+        {% if message %}
+        <div class="alert alert-success">{{ message }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+
+        <!-- Add User Card -->
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <h3 class="card-title">➕ Tambah Pelanggan Baru</h3>
+            <form method="POST" action="/kelola-scdl/add" autocomplete="off" class="add-user-form">
+                <div class="form-row">
+                    <div class="field">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" placeholder="contoh: user1" required>
+                    </div>
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input type="text" id="password" name="password" placeholder="contoh: pass123" required>
+                    </div>
+                    <div class="field">
+                        <label for="days">Durasi (hari)</label>
+                        <input type="number" id="days" name="days" value="30" min="1" max="365" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-add">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="8.5" cy="7" r="4" />
+                        <line x1="20" y1="8" x2="20" y2="14" />
+                        <line x1="23" y1="11" x2="17" y2="11" />
+                    </svg>
+                    Tambah Pelanggan
+                </button>
+            </form>
+        </div>
+
+        <!-- Users Table -->
+        <div class="card">
+            <h3 class="card-title">📋 Daftar Pelanggan ({{ users|length }})</h3>
+
+            {% if users %}
+            <div class="table-wrap">
+                <table class="user-table">
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Status</th>
+                            <th>Sisa Hari</th>
+                            <th>Expired</th>
+                            <th>Dibuat</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td class="td-user">{{ user.username }}</td>
+                            <td>
+                                {% if user.is_active %}
+                                <span class="badge badge-active">Aktif</span>
+                                {% else %}
+                                <span class="badge badge-expired">Expired</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ user.days_left }} hari</td>
+                            <td class="td-date">{{ user.expires_at[:10] }}</td>
+                            <td class="td-date">{{ user.created_at[:10] }}</td>
+                            <td class="td-actions">
+                                <form method="POST" action="/kelola-scdl/extend" style="display:inline;">
+                                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                                    <input type="hidden" name="days" value="30">
+                                    <button type="submit" class="btn-sm btn-extend"
+                                        title="Perpanjang 30 hari">+30h</button>
+                                </form>
+                                <form method="POST" action="/kelola-scdl/delete" style="display:inline;"
+                                    onsubmit="return confirm('Yakin hapus {{ user.username }}?')">
+                                    <input type="hidden" name="user_id" value="{{ user.id }}">
+                                    <button type="submit" class="btn-sm btn-delete" title="Hapus user">Hapus</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty-state">Belum ada pelanggan. Tambahkan pelanggan baru di atas.</p>
+            {% endif %}
+        </div>
+
+        <footer>
+            SCDL Web Admin Panel · Hanya untuk admin.
+        </footer>
+    </div>
+</body>
+
+</html>

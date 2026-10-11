@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login — SCDL</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='soundcloud-logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}">
+</head>
+
+<body class="admin-body">
+    <div class="bg-blob blob-1"></div>
+    <div class="bg-blob blob-2"></div>
+    <div class="bg-blob blob-3"></div>
+
+    <div class="app">
+        <div class="hero">
+            <div class="admin-login-icon">👑</div>
+            <h1 class="hero-title"
+                style="background: linear-gradient(135deg, #8b5cf6, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                Admin Panel</h1>
+            <p class="hero-sub">Login untuk mengelola pelanggan.</p>
+        </div>
+
+        <div class="card">
+            {% if error %}
+            <div class="alert alert-error">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/kelola-scdl/login" autocomplete="off">
+                <div class="field">
+                    <label for="username">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        Username
+                    </label>
+                    <input type="text" id="username" name="username" placeholder="Admin username" required autofocus>
+                </div>
+
+                <div class="field">
+                    <label for="password">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        Password
+                    </label>
+                    <input type="password" id="password" name="password" placeholder="Admin password" required>
+                </div>
+
+                <button type="submit" class="btn-add" style="margin-top: 0.5rem;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                        <polyline points="10 17 15 12 10 7" />
+                        <line x1="15" y1="12" x2="3" y2="12" />
+                    </svg>
+                    <span>Masuk Admin</span>
+                </button>
+            </form>
+        </div>
+
+        <footer>
+            SCDL Web Admin · Akses khusus admin.
+        </footer>
+    </div>
+</body>
+
+</html>

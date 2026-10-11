@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCDL Web — SoundCloud Downloader</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <!-- Animated background blobs -->
+    <div class="bg-blob blob-1"></div>
+    <div class="bg-blob blob-2"></div>
+    <div class="bg-blob blob-3"></div>
+
+    <div class="app">
+        <!-- User Chip (bottom-right floating) -->
+        <div class="user-chip">
+            <span class="user-chip-name">{{ session.username }}</span>
+            <a href="/logout" class="user-chip-logout" title="Logout">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+            </a>
+        </div>
+
+        <!-- Hero Logo Section -->
+        <div class="hero">
+            <img src="{{ url_for('static', filename='soundcloud-logo.png') }}" alt="SoundCloud" class="hero-logo">
+            <h1 class="hero-title">SCDL <span>Web</span></h1>
+            <p class="hero-sub">Download lagu & playlist premium langsung ke perangkatmu.</p>
+        </div>
+
+        <!-- Main Card -->
+        <div class="card">
+            <form id="downloadForm" autocomplete="off">
+                <!-- URL Input -->
+                <div class="field">
+                    <label for="url">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                        Link SoundCloud
+                    </label>
+                    <input type="url" id="url" name="url" placeholder="https://soundcloud.com/artist/track" required>
+                </div>
+
+                <!-- Token Input -->
+                <div class="field">
+                    <label for="auth_token">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        OAuth Token
+                        <span class="label-hint">Opsional untuk lagu publik</span>
+                    </label>
+                    <div class="auth-token-wrapper" style="position: relative; display: flex; gap: 8px;">
+                        <input type="password" id="auth_token" name="auth_token"
+                            placeholder="Paste oauth_token kamu di sini" value="{{ saved_token }}" style="flex: 1;">
+                        <button type="button" id="saveTokenBtn" class="btn-save-token" title="Simpan Token"
+                            style="padding: 0 16px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); cursor: pointer; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; justify-content: center;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                                <polyline points="17 21 17 13 7 13 7 21" />
+                                <polyline points="7 3 7 8 15 8" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Format Selector -->
+                <div class="field">
+                    <label for="format">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polygon points="10 8 16 12 10 16 10 8" />
+                        </svg>
+                        Format Audio
+                        <span class="label-hint">Pilih format output</span>
+                    </label>
+                    <select id="format" name="format">
+                        <option value="mp3" selected>MP3 (320kbps)</option>
+                        <option value="flac">FLAC (Lossless HD)</option>
+                        <option value="wav">WAV (Uncompressed)</option>
+                        <option value="aac">AAC (High Quality)</option>
+                        <option value="m4a">M4A (Apple Audio)</option>
+                        <option value="ogg">OGG (High Quality)</option>
+                        <option value="opus">OPUS (Modern Compact)</option>
+                    </select>
+                </div>
+                <!-- Submit -->
+                <button type="submit" id="downloadBtn">
+                    <svg class="btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span class="btn-text">Download Lagu</span>
+                    <div class="spinner" style="display: none;"></div>
+                </button>
+            </form>
+
+            <div id="statusMessage" class="status-msg"></div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            Powered by SCDL Web · Hanya untuk penggunaan pribadi.
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>

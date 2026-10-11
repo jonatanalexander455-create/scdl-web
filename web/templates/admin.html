@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — SCDL Web</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v=3">
+</head>
+
+<body>
+    <div class="admin-bg">
+        <div class="admin-blob admin-blob-1"></div>
+        <div class="admin-blob admin-blob-2"></div>
+        <div class="admin-blob admin-blob-3"></div>
+    </div>
+
+    <div class="admin-container">
+        <!-- Header -->
+        <header class="admin-header">
+            <div class="admin-header-left">
+                <span class="admin-crown">👑</span>
+                <h1>Admin Panel</h1>
+            </div>
+            <nav class="admin-nav">
+                <a href="/" class="admin-nav-link">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                    Home
+                </a>
+                <a href="/logout" class="admin-nav-link admin-nav-danger">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Logout
+                </a>
+            </nav>
+        </header>
+
+        <!-- Stats Row -->
+        <div class="admin-stats">
+            <div class="stat-card">
+                <div class="stat-icon">👥</div>
+                <div class="stat-info">
+                    <div class="stat-number">{{ users|length }}</div>
+                    <div class="stat-label">Total</div>
+                </div>
+            </div>
+            <div class="stat-card stat-card-green">
+                <div class="stat-icon">✅</div>
+                <div class="stat-info">
+                    <div class="stat-number">{{ users|selectattr('is_active')|list|length }}</div>
+                    <div class="stat-label">Aktif</div>
+                </div>
+            </div>
+            <div class="stat-card stat-card-red">
+                <div class="stat-icon">⏰</div>
+                <div class="stat-info">
+                    <div class="stat-number">{{ users|rejectattr('is_active')|list|length }}</div>
+                    <div class="stat-label">Expired</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts -->
+        {% if message %}
+        <div class="admin-alert admin-alert-success">{{ message }}</div>
+        {% endif %}
+        {% if error %}
+        <div class="admin-alert admin-alert-error">{{ error }}</div>
+        {% endif %}
+
+        <!-- Add User Section -->
+        <div class="admin-card">
+            <div class="admin-card-header">
+                <h2>➕ Tambah Pelanggan Baru</h2>
+            </div>
+            <form method="POST" action="/kelola-scdl/add" autocomplete="off">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="add-form-grid">
+                    <div class="add-field">
+                        <label>Username</label>
+                        <input type="text" name="username" placeholder="contoh: user1" required>
+                    </div>
+                    <div class="add-field">
+                        <label>Password</label>
+                        <input type="text" name="password" placeholder="contoh: pass123" required>
+                    </div>
+                    <div class="add-field">
+                        <label>Hari</label>
+                        <input type="number" name="days" value="30" min="1" max="365" required>
+                    </div>
+                </div>
+                <button type="submit" class="admin-btn-primary">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="8.5" cy="7" r="4" />
+                        <line x1="20" y1="8" x2="20" y2="14" />
+                        <line x1="23" y1="11" x2="17" y2="11" />
+                    </svg>
+                    Tambah Pelanggan
+                </button>
+            </form>
+        </div>
+
+        <!-- Users List -->
+        <div class="admin-card">
+            <div class="admin-card-header">
+                <h2>📋 Daftar Pelanggan</h2>
+                <span class="admin-card-badge">{{ users|length }}</span>
+            </div>
+
+            {% if users %}
+            <div class="user-list">
+                {% for user in users %}
+                <div class="user-row">
+                    <div class="user-info">
+                        <div class="user-avatar">{{ user.username[0:1] | upper }}</div>
+                        <div class="user-details">
+                            <div class="user-name">{{ user.username }}</div>
+                            <div class="user-meta">
+                                {% if user.is_active %}
+                                <span class="status-dot status-active"></span> Aktif · {{ user.days_left }} hari tersisa
+                                {% else %}
+                                <span class="status-dot status-expired"></span> Expired
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="user-dates">
+                        <span title="Tanggal expired">📅 {{ user.expires_at[:10] }}</span>
+                        <span title="Tanggal dibuat">🕐 {{ user.created_at[:10] }}</span>
+                    </div>
+                    <div class="user-actions">
+                        <form method="POST" action="/kelola-scdl/extend">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <input type="hidden" name="days" value="30">
+                            <button type="submit" class="action-btn action-extend" title="Perpanjang 30 hari">+30
+                                Hari</button>
+                        </form>
+                        <form method="POST" action="/kelola-scdl/reset-password" id="reset-form-{{ user.id }}">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <input type="hidden" name="new_password" id="new-password-{{ user.id }}" value="">
+                            <button type="button" class="action-btn action-reset" title="Reset Kata Sandi"
+                                onclick="resetPassword('{{ user.id }}', '{{ user.username }}')">Reset Pwd</button>
+                        </form>
+                        <form method="POST" action="/kelola-scdl/delete"
+                            onsubmit="return confirm('Yakin hapus {{ user.username }}?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <button type="submit" class="action-btn action-delete" title="Hapus user">Hapus</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-icon">🪹</div>
+                <p>Belum ada pelanggan.</p>
+                <p class="empty-sub">Tambahkan pelanggan baru di form atas.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Storage Management -->
+        {% if disk %}
+        <div class="admin-card">
+            <div class="admin-card-header">
+                <h2>💾 Storage VPS</h2>
+                <span class="admin-card-badge">{{ disk.disk_free_gb }} GB Tersisa</span>
+            </div>
+            <div class="storage-info">
+                <div class="storage-bar-wrap">
+                    <div class="storage-bar" style="width: {{ disk.disk_percent }}%"></div>
+                </div>
+                <div class="storage-details">
+                    <span>📦 {{ disk.disk_used_gb }} / {{ disk.disk_total_gb }} GB terpakai ({{ disk.disk_percent
+                        }}%)</span>
+                    <span>🎵 {{ disk.downloads_files }} file cache · {{ disk.downloads_size_mb }} MB</span>
+                </div>
+            </div>
+            <form method="POST" action="/kelola-scdl/cleanup"
+                onsubmit="return confirm('Yakin hapus semua file cache download?')">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="admin-btn-cleanup">
+                    🧹 Bersihkan File Cache
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <footer class="admin-footer">
+            SCDL Web Admin · Hanya untuk admin.
+        </footer>
+    </div>
+
+    <script>
+        function resetPassword(userId, username) {
+            const newPassword = prompt(`Masukkan kata sandi baru untuk user "${username}":\n(Minimal 4 karakter)`);
+            if (newPassword === null) return;
+            if (newPassword.trim().length < 4) {
+                alert("Kata sandi terlalu pendek! Minimal 4 karakter.");
+                return;
+            }
+            document.getElementById('new-password-' + userId).value = newPassword.trim();
+            document.getElementById('reset-form-' + userId).submit();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,444 @@
+from flask import Flask, render_template, request, jsonify, send_file, after_this_request, session, redirect, url_for
+from functools import wraps
+from datetime import timedelta
+import subprocess
+import os
+import tempfile
+import shutil
+import uuid
+import time
+import secrets
+from db import init_db, check_user, get_all_users, add_user, delete_user, extend_user, reset_user_password
+
+app = Flask(__name__)
+
+# Basic paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DOWNLOADS_DIR = os.path.join(BASE_DIR, 'downloads')
+SECRET_FILE = os.path.join(BASE_DIR, '.secret_key')
+
+# Generate or load secret key
+if not os.path.exists(SECRET_FILE):
+    with open(SECRET_FILE, 'wb') as f:
+        f.write(os.urandom(24))
+with open(SECRET_FILE, 'rb') as f:
+    app.secret_key = f.read()
+
+# Ensure downloads directory exists
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# Initialize database
+init_db()
+
+# ===================== SECURITY: SESSION TIMEOUT (#4) =====================
+app.permanent_session_lifetime = timedelta(minutes=30)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
+# ===================== SECURITY: RATE LIMITING (#2) =====================
+login_attempts = {}  # { ip: { 'count': int, 'first_attempt': float } }
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION = 900  # 15 minutes in seconds
+
+def is_rate_limited(ip):
+    """Check if an IP is rate-limited."""
+    if ip not in login_attempts:
+        return False
+    info = login_attempts[ip]
+    # Reset if lockout period has expired
+    if time.time() - info['first_attempt'] > LOCKOUT_DURATION:
+        del login_attempts[ip]
+        return False
+    return info['count'] >= MAX_LOGIN_ATTEMPTS
+
+def record_failed_login(ip):
+    """Record a failed login attempt."""
+    if ip not in login_attempts:
+        login_attempts[ip] = {'count': 1, 'first_attempt': time.time()}
+    else:
+        login_attempts[ip]['count'] += 1
+
+def clear_login_attempts(ip):
+    """Clear login attempts after successful login."""
+    if ip in login_attempts:
+        del login_attempts[ip]
+
+# ===================== SECURITY: CSRF PROTECTION (#3) =====================
+def generate_csrf_token():
+    """Generate a CSRF token and store it in the session."""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+def validate_csrf_token():
+    """Validate the CSRF token from the form against the session."""
+    token = request.form.get('_csrf_token', '')
+    if not token or token != session.get('_csrf_token', ''):
+        return False
+    return True
+
+# Make csrf_token available in all templates
+app.jinja_env.globals['csrf_token'] = generate_csrf_token
+
+# ===================== AUTH MIDDLEWARE =====================
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session or not session.get('is_admin'):
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
+    return decorated
+
+def csrf_required(f):
+    """Decorator to validate CSRF token on POST requests."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if request.method == 'POST':
+            if not validate_csrf_token():
+                return 'CSRF token tidak valid. Silakan refresh halaman dan coba lagi.', 403
+        return f(*args, **kwargs)
+    return decorated
+
+# ===================== AUTH ROUTES =====================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        ip = request.remote_addr
+        
+        # Check rate limiting
+        if is_rate_limited(ip):
+            remaining = int(LOCKOUT_DURATION - (time.time() - login_attempts[ip]['first_attempt']))
+            minutes = remaining // 60
+            return render_template('login.html', error=f'⛔ Terlalu banyak percobaan login. Coba lagi dalam {minutes} menit.')
+        
+        if not validate_csrf_token():
+            return render_template('login.html', error='⛔ Sesi tidak valid. Silakan refresh halaman.')
+        
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        
+        user, error = check_user(username, password)
+        if user:
+            clear_login_attempts(ip)
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['is_admin'] = bool(user['is_admin'])
+            return redirect(url_for('index'))
+        else:
+            record_failed_login(ip)
+            return render_template('login.html', error=error)
+    
+    return render_template('login.html')
+
+@app.route('/kelola-scdl/login', methods=['GET', 'POST'])
+def admin_login():
+    if 'user_id' in session and session.get('is_admin'):
+        return redirect(url_for('admin'))
+    
+    if request.method == 'POST':
+        ip = request.remote_addr
+        
+        # Check rate limiting
+        if is_rate_limited(ip):
+            remaining = int(LOCKOUT_DURATION - (time.time() - login_attempts[ip]['first_attempt']))
+            minutes = remaining // 60
+            return render_template('admin_login.html', error=f'⛔ Terlalu banyak percobaan login. Coba lagi dalam {minutes} menit.')
+        
+        if not validate_csrf_token():
+            return render_template('admin_login.html', error='⛔ Sesi tidak valid. Silakan refresh halaman.')
+        
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        
+        user, error = check_user(username, password)
+        if user and user['is_admin']:
+            clear_login_attempts(ip)
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['is_admin'] = True
+            return redirect(url_for('admin'))
+        else:
+            record_failed_login(ip)
+            return render_template('admin_login.html', error='Username atau password admin salah')
+    
+    return render_template('admin_login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+# ===================== ADMIN ROUTES =====================
+
+@app.route('/kelola-scdl')
+@admin_required
+def admin():
+    users = get_all_users()
+    disk = get_disk_info()
+    return render_template('admin.html', users=users, disk=disk)
+
+@app.route('/kelola-scdl/add', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_add():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    days = int(request.form.get('days', 30))
+    
+    success, msg = add_user(username, password, days=days)
+    users = get_all_users()
+    disk = get_disk_info()
+    
+    if success:
+        return render_template('admin.html', users=users, disk=disk, message=f'✅ User "{username}" berhasil ditambahkan ({days} hari)')
+    else:
+        return render_template('admin.html', users=users, disk=disk, error=f'❌ {msg}')
+
+@app.route('/kelola-scdl/delete', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_delete():
+    user_id = int(request.form.get('user_id'))
+    delete_user(user_id)
+    users = get_all_users()
+    disk = get_disk_info()
+    return render_template('admin.html', users=users, disk=disk, message='✅ User berhasil dihapus')
+
+@app.route('/kelola-scdl/extend', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_extend():
+    user_id = int(request.form.get('user_id'))
+    days = int(request.form.get('days', 30))
+    extend_user(user_id, days)
+    users = get_all_users()
+    disk = get_disk_info()
+    return render_template('admin.html', users=users, disk=disk, message=f'✅ Langganan diperpanjang {days} hari')
+
+@app.route('/kelola-scdl/reset-password', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_reset_password():
+    user_id = int(request.form.get('user_id'))
+    new_password = request.form.get('new_password', '').strip()
+    
+    if len(new_password) < 4:
+        users = get_all_users()
+        disk = get_disk_info()
+        return render_template('admin.html', users=users, disk=disk, error='❌ Password minimal 4 karakter')
+        
+    success, msg = reset_user_password(user_id, new_password)
+    users = get_all_users()
+    disk = get_disk_info()
+    
+    if success:
+        return render_template('admin.html', users=users, disk=disk, message='✅ ' + msg)
+    else:
+        return render_template('admin.html', users=users, disk=disk, error='❌ ' + msg)
+
+def get_disk_info():
+    """Get disk usage info for downloads folder and VPS."""
+    # Downloads folder size
+    total_size = 0
+    file_count = 0
+    for dirpath, dirnames, filenames in os.walk(DOWNLOADS_DIR):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            if os.path.exists(fp):
+                total_size += os.path.getsize(fp)
+                file_count += 1
+    
+    # VPS disk usage
+    import shutil as sh
+    disk = sh.disk_usage('/')
+    
+    return {
+        'downloads_size_mb': round(total_size / (1024 * 1024), 1),
+        'downloads_files': file_count,
+        'disk_total_gb': round(disk.total / (1024**3), 1),
+        'disk_used_gb': round(disk.used / (1024**3), 1),
+        'disk_free_gb': round(disk.free / (1024**3), 1),
+        'disk_percent': round((disk.used / disk.total) * 100, 1)
+    }
+
+@app.route('/kelola-scdl/cleanup', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_cleanup():
+    """Delete all files in the downloads folder."""
+    cleaned = 0
+    for item in os.listdir(DOWNLOADS_DIR):
+        item_path = os.path.join(DOWNLOADS_DIR, item)
+        try:
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+            else:
+                os.remove(item_path)
+            cleaned += 1
+        except Exception:
+            pass
+    
+    users = get_all_users()
+    disk = get_disk_info()
+    return render_template('admin.html', users=users, disk=disk,
+                           message=f'🧹 Berhasil membersihkan {cleaned} item dari storage')
+
+# ===================== MAIN ROUTES =====================
+
+@app.route('/')
+@login_required
+def index():
+    user_id = session.get('user_id')
+    from db import get_db
+    conn = get_db()
+    user = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    
+    saved_token = user['oauth_token'] if user and user['oauth_token'] else ''
+    return render_template('index.html', saved_token=saved_token)
+
+@app.route('/api/save_token', methods=['POST'])
+@login_required
+def save_token():
+    data = request.json
+    auth_token = data.get('auth_token', '').strip()
+    user_id = session.get('user_id')
+    
+    if not auth_token:
+        return jsonify({'error': 'Token tidak boleh kosong'}), 400
+        
+    try:
+        from db import get_db
+        conn = get_db()
+        conn.execute('UPDATE users SET oauth_token = ? WHERE id = ?', (auth_token, user_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Token berhasil disimpan ke akun kamu'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download', methods=['POST'])
+@login_required
+def download():
+    data = request.json
+    url = data.get('url')
+    auth_token = data.get('auth_token')
+    audio_format = data.get('format', 'mp3')
+    
+    # Validate format
+    allowed_formats = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'opus', 'm4a']
+    if audio_format not in allowed_formats:
+        audio_format = 'mp3'
+    
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+        
+    # Create a unique temporary directory for this download
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join(DOWNLOADS_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    
+    try:
+        # Dynamically locate yt-dlp executable
+        YT_DLP = shutil.which('yt-dlp') or '/Users/johoktan11/Library/Python/3.9/bin/yt-dlp' or 'yt-dlp'
+        cmd = [
+            YT_DLP,
+            '-x', '--audio-format', audio_format,
+            '--embed-thumbnail',
+            '--embed-metadata',
+            '--convert-thumbnails', 'jpg',
+            '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+            url
+        ]
+        
+        if auth_token:
+            cmd.extend(['--add-header', f'Authorization: OAuth {auth_token}'])
+
+            
+        # Run the command with timeout
+        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+        
+        if process.returncode != 0:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return jsonify({'error': f'Download gagal: {process.stderr}'}), 500
+            
+        # Find the downloaded file(s)
+        downloaded_files = os.listdir(job_dir)
+        
+        if not downloaded_files:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return jsonify({'error': 'Tidak ada file yang terdownload. URL mungkin tidak valid.'}), 404
+            
+        # Helper to find all files
+        def get_all_files(directory):
+            file_paths = []
+            for root, directories, files in os.walk(directory):
+                for filename in files:
+                    filepath = os.path.join(root, filename)
+                    file_paths.append(filepath)
+            return file_paths
+            
+        all_files = get_all_files(job_dir)
+        
+        if not all_files:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return jsonify({'error': 'Gagal menemukan file yang terdownload.'}), 500
+            
+        if len(all_files) == 1:
+            file_to_send = all_files[0]
+            filename = os.path.basename(file_to_send)
+            
+            @after_this_request
+            def remove_file(response):
+                try:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                except Exception as e:
+                    app.logger.error(f"Error removing file: {e}")
+                return response
+                
+            return send_file(file_to_send, as_attachment=True, download_name=filename)
+        else:
+            zip_filename = f"{job_id}.zip"
+            zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
+            shutil.make_archive(zip_path[:-4], 'zip', job_dir)
+            
+            @after_this_request
+            def remove_files(response):
+                try:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    if os.path.exists(zip_path):
+                        os.remove(zip_path)
+                except Exception as e:
+                    app.logger.error(f"Error removing files: {e}")
+                return response
+                
+            return send_file(zip_path, as_attachment=True, download_name="soundcloud_playlist.zip")
+
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({'error': 'Download timeout setelah 2 menit. Coba lagi.'}), 500
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        shutil.rmtree(job_dir, ignore_errors=True)
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5008))
+    app.run(host='0.0.0.0', debug=False, port=port, threaded=True)
+
