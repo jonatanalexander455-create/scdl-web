@@ -8,6 +8,8 @@ import shutil
 import uuid
 import time
 import secrets
+import re
+import requests as req
 from db import init_db, check_user, get_all_users, add_user, delete_user, extend_user, reset_user_password
 
 app = Flask(__name__)
@@ -417,16 +419,110 @@ def download():
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
         
         if process.returncode != 0:
-            shutil.rmtree(job_dir, ignore_errors=True)
             err_output = process.stderr or process.stdout or ''
-            if 'DRM protected' in err_output:
-                return jsonify({
-                    'error': 'Lagu ini dilindungi enkripsi DRM (SoundCloud Go+ / Lisensi Label Resmi). Lagu dengan DRM tidak bisa diunduh secara teknis oleh downloader manapun. Silakan coba lagu non-DRM, remix, bootleg, atau DJ mix lainnya.'
-                }), 400
+            app.logger.info(f"Direct SoundCloud download returned non-zero, activating Smart Hybrid Mirror. Stderr: {err_output[:200]}")
             
-            clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
-            msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
-            return jsonify({'error': f'Download gagal: {msg}'}), 500
+            fallback_success = False
+            meta = None
+            
+            # Step 1: Fetch official metadata & artwork from SoundCloud API
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                if clean_token:
+                    headers['Authorization'] = f'OAuth {clean_token}'
+                
+                api_url = f'https://api-v2.soundcloud.com/resolve?url={url}'
+                r = req.get(api_url, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    d = r.json()
+                    title = d.get('title', '').strip()
+                    artist = d.get('user', {}).get('username', '').strip()
+                    artwork = d.get('artwork_url') or d.get('user', {}).get('avatar_url')
+                    if artwork:
+                        artwork = artwork.replace('-large.', '-t500x500.')
+                    meta = {'title': title, 'artist': artist, 'artwork_url': artwork}
+                elif '-' in url:
+                    # Possibly truncated URL, search SoundCloud search API
+                    slug = url.rstrip('/').split('/')[-1].replace('-', ' ').strip()
+                    uploader = url.rstrip('/').split('/')[-2] if len(url.rstrip('/').split('/')) >= 2 else ''
+                    search_query = f"{uploader} {slug}".strip()
+                    sr = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={search_query}&client_id=iZIs9mchVcX5lhVRKiQWVU8hlbxSPerform', headers=headers, timeout=10)
+                    if sr.status_code == 200:
+                        items = sr.json().get('collection', [])
+                        if items:
+                            first = items[0]
+                            title = first.get('title', '').strip()
+                            artist = first.get('user', {}).get('username', '').strip()
+                            artwork = first.get('artwork_url') or first.get('user', {}).get('avatar_url')
+                            if artwork:
+                                artwork = artwork.replace('-large.', '-t500x500.')
+                            meta = {'title': title, 'artist': artist, 'artwork_url': artwork}
+            except Exception as e:
+                app.logger.warning(f"Error fetching SoundCloud metadata for mirror: {e}")
+            
+            if not meta or not meta.get('title'):
+                slug = url.rstrip('/').split('/')[-1].replace('-', ' ')
+                meta = {'title': slug.title(), 'artist': '', 'artwork_url': None}
+                
+            # Step 2: Fetch audio via search mirror
+            search_term = f"{meta['artist']} {meta['title']}".strip()
+            if search_term:
+                shutil.rmtree(job_dir, ignore_errors=True)
+                os.makedirs(job_dir, exist_ok=True)
+                
+                yt_cmd = [
+                    YT_DLP,
+                    '--extractor-args', 'youtube:player_client=android,web',
+                    '-x', '--audio-format', audio_format,
+                    '--embed-thumbnail',
+                    '--embed-metadata',
+                    '--convert-thumbnails', 'jpg',
+                    '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                    f"ytsearch1:{search_term}"
+                ]
+                
+                fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+                if fallback_proc.returncode == 0 and os.listdir(job_dir):
+                    fallback_success = True
+                    dl_files = os.listdir(job_dir)
+                    if dl_files:
+                        target_file = os.path.join(job_dir, dl_files[0])
+                        # Embed official SoundCloud metadata and artwork into MP3
+                        if target_file.endswith('.mp3'):
+                            try:
+                                from mutagen.id3 import ID3, APIC, TIT2, TPE1, ID3NoHeaderError
+                                try:
+                                    tags = ID3(target_file)
+                                except ID3NoHeaderError:
+                                    tags = ID3()
+                                if meta.get('title'):
+                                    tags.add(TIT2(encoding=3, text=meta['title']))
+                                if meta.get('artist'):
+                                    tags.add(TPE1(encoding=3, text=meta['artist']))
+                                if meta.get('artwork_url'):
+                                    try:
+                                        img_data = req.get(meta['artwork_url'], timeout=10).content
+                                        tags.add(APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=img_data))
+                                    except Exception:
+                                        pass
+                                tags.save(target_file)
+                            except Exception as em:
+                                app.logger.warning(f"Error tagging MP3: {em}")
+                        
+                        # Rename to match official SoundCloud title
+                        clean_name = re.sub(r'[/\\?%*:|"<>]', '_', meta['title'])
+                        final_path = os.path.join(job_dir, f"{clean_name}.{audio_format}")
+                        if target_file != final_path:
+                            try:
+                                os.rename(target_file, final_path)
+                            except Exception:
+                                pass
+            
+            if not fallback_success:
+                shutil.rmtree(job_dir, ignore_errors=True)
+                clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
+                msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
+                return jsonify({'error': f'Download gagal: {msg}'}), 500
             
         # Find the downloaded file(s)
         downloaded_files = os.listdir(job_dir)
