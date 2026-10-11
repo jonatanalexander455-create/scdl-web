@@ -495,6 +495,17 @@ def download():
                     match_filters.append(f"duration >= {max(1, duration_sec - 15)} & duration <= {duration_sec + 15}")
                 match_filters.append(None)
                 
+                # Check for optional cookies file
+                cookies_file = None
+                for cand_path in [
+                    os.path.join(os.path.dirname(__file__), 'cookies.txt'),
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cookies.txt'),
+                    '/app/cookies.txt'
+                ]:
+                    if os.path.exists(cand_path) and os.path.getsize(cand_path) > 10:
+                        cookies_file = cand_path
+                        break
+
                 fallback_proc = None
                 for mf in match_filters:
                     for query in [f"ytsearch5:{clean_search}", f"ytsearch5:{clean_search} audio"]:
@@ -510,6 +521,8 @@ def download():
                             '--embed-metadata',
                             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
                         ]
+                        if cookies_file:
+                            yt_cmd.extend(['--cookies', cookies_file])
                         if mf:
                             yt_cmd.extend(['--match-filter', mf])
                         yt_cmd.append(query)
