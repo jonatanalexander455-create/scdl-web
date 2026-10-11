@@ -526,8 +526,13 @@ def download():
             
             if not fallback_success:
                 shutil.rmtree(job_dir, ignore_errors=True)
+                mirror_err = ''
+                if 'fallback_proc' in locals() and fallback_proc:
+                    mirror_err = (fallback_proc.stderr or fallback_proc.stdout or '').strip()
                 clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
                 msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
+                if mirror_err:
+                    msg += f" | Mirror: {mirror_err[-200:]}"
                 return jsonify({'error': f'Download gagal: {msg}'}), 500
             
         # Find the downloaded file(s)
