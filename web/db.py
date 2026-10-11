@@ -30,6 +30,12 @@ class PgDBConnection:
     def commit(self):
         self.conn.commit()
 
+    def rollback(self):
+        try:
+            self.conn.rollback()
+        except Exception:
+            pass
+
     def close(self):
         self.conn.close()
 
@@ -45,6 +51,12 @@ class SqliteDBConnection:
 
     def commit(self):
         self.conn.commit()
+
+    def rollback(self):
+        try:
+            self.conn.rollback()
+        except Exception:
+            pass
 
     def close(self):
         self.conn.close()
@@ -90,10 +102,13 @@ def init_db():
 
     # Migrate oauth_token column if table already existed without it
     try:
-        conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
+        if DATABASE_URL:
+            conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_token TEXT')
+        else:
+            conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
         conn.commit()
     except Exception:
-        pass
+        conn.rollback()
 
     # Create default admin if not exists
     admin = conn.execute('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', ('admin',)).fetchone()
@@ -128,6 +143,7 @@ def init_db():
                 conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8')")
             conn.commit()
     except Exception as e:
+        conn.rollback()
         print(f"[DB] Error seeding soundcloud_oauth_token: {e}")
 
     # Ensure existing users don't get expired by default
@@ -135,7 +151,7 @@ def init_db():
         conn.execute("UPDATE users SET expires_at = '2099-12-31 23:59:59' WHERE expires_at < '2090-01-01'")
         conn.commit()
     except Exception:
-        pass
+        conn.rollback()
 
     conn.close()
 
