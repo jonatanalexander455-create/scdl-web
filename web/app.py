@@ -353,6 +353,32 @@ def download():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
         
+    # Resolve shortlink if on.soundcloud.com
+    if 'on.soundcloud.com' in url:
+        try:
+            import requests as req
+            resolved = req.get(url, allow_redirects=True, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            if resolved.url and 'soundcloud.com' in resolved.url:
+                url = resolved.url
+        except Exception as e:
+            app.logger.warning(f"Failed to resolve shortlink: {e}")
+
+    # Clean and resolve auth_token
+    clean_token = auth_token.strip() if auth_token else ''
+    if not clean_token:
+        try:
+            from db import get_db
+            conn = get_db()
+            user_row = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (session.get('user_id'),)).fetchone()
+            conn.close()
+            if user_row and user_row['oauth_token']:
+                clean_token = user_row['oauth_token'].strip()
+        except Exception:
+            pass
+
+    if clean_token.lower().startswith('oauth '):
+        clean_token = clean_token[6:].strip()
+
     # Create a unique temporary directory for this download
     job_id = str(uuid.uuid4())
     job_dir = os.path.join(DOWNLOADS_DIR, job_id)
@@ -368,11 +394,16 @@ def download():
             '--embed-metadata',
             '--convert-thumbnails', 'jpg',
             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-            url
         ]
         
-        if auth_token:
-            cmd.extend(['--add-header', f'Authorization: OAuth {auth_token}'])
+        if clean_token:
+            cmd.extend([
+                '--username', 'oauth',
+                '--password', clean_token,
+                '--add-header', f'Authorization: OAuth {clean_token}',
+            ])
+
+        cmd.append(url)
 
             
         # Run the command with timeout
