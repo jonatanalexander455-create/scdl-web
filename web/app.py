@@ -544,14 +544,10 @@ def download():
                         and os.path.getsize(os.path.join(d, f)) > 10000
                     ]
                 
-                # Smart Duration Matching: prioritize exact duration matching (+-6s), then relaxed (+-15s)
-                match_filters = []
+                search_attempts = []
                 if duration_sec > 10:
-                    match_filters.append(f"duration >= {max(1, duration_sec - 6)} & duration <= {duration_sec + 6}")
-                    match_filters.append(f"duration >= {max(1, duration_sec - 15)} & duration <= {duration_sec + 15}")
-                match_filters.append(None)
-                
-                # Check for optional cookies file
+                    search_attempts.append((f"ytsearch3:{clean_search}", f"duration >= {max(1, duration_sec - 12)} & duration <= {duration_sec + 12}"))
+                search_attempts.append((f"ytsearch3:{clean_search}", None))
                 cookies_file = None
                 for cand_path in [
                     os.path.join(os.path.dirname(__file__), 'cookies.txt'),
@@ -563,31 +559,35 @@ def download():
                         break
 
                 fallback_proc = None
-                for mf in match_filters:
-                    for query in [f"ytsearch5:{clean_search}", f"ytsearch5:{clean_search} audio"]:
-                        yt_cmd = [
-                            YT_DLP,
-                            '--no-playlist',
-                            '--max-downloads', '1',
-                            '--ignore-errors',
-                            '--no-abort-on-error',
-                            '--extractor-args', 'youtube:player_client=android',
-                            '-f', '18/bestaudio/best',
-                            '-x', '--audio-format', audio_format,
-                            '--embed-metadata',
-                            '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                        ]
-                        if cookies_file:
-                            yt_cmd.extend(['--cookies', cookies_file])
-                        if mf:
-                            yt_cmd.extend(['--match-filter', mf])
-                        yt_cmd.append(query)
-                        
-                        fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
-                        if find_valid_audio(job_dir):
-                            break
+                for query, mf in search_attempts:
+                    yt_cmd = [
+                        YT_DLP,
+                        '--no-playlist',
+                        '--max-downloads', '1',
+                        '--ignore-errors',
+                        '--no-abort-on-error',
+                        '--extractor-args', 'youtube:player_client=android',
+                        '-f', '18/bestaudio/best',
+                        '-x', '--audio-format', audio_format,
+                        '--embed-metadata',
+                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                    ]
+                    if cookies_file:
+                        yt_cmd.extend(['--cookies', cookies_file])
+                    if mf:
+                        yt_cmd.extend(['--match-filter', mf])
+                    yt_cmd.append(query)
+                    
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
                     if find_valid_audio(job_dir):
                         break
+
+                    # If cookies failed or got blocked, retry without cookies
+                    if cookies_file and not find_valid_audio(job_dir):
+                        yt_cmd_no_cookies = [arg for arg in yt_cmd if arg != '--cookies' and arg != cookies_file]
+                        fallback_proc = subprocess.run(yt_cmd_no_cookies, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+                        if find_valid_audio(job_dir):
+                            break
                 
                 valid_files = find_valid_audio(job_dir)
                 if valid_files:
