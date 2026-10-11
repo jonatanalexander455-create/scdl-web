@@ -1,7 +1,12 @@
 import sqlite3
 import os
-import bcrypt
+import hashlib
 from datetime import datetime, timedelta
+
+try:
+    import bcrypt
+except ImportError:
+    bcrypt = None
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scdl.db')
 
@@ -31,18 +36,44 @@ def init_db():
         add_user('admin', 'admin123', is_admin=True, days=99999)
         print('[DB] Default admin created: admin / admin123')
     
+    # Ensure existing users don't get expired by default
+    try:
+        conn.execute("UPDATE users SET expires_at = '2099-12-31 23:59:59' WHERE expires_at < '2090-01-01'")
+        conn.commit()
+    except Exception:
+        pass
+    
     conn.close()
 
 def hash_password(password):
-    """Hash a password using bcrypt with auto-generated salt."""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    """Hash a password using bcrypt if available, otherwise sha256."""
+    if bcrypt:
+        try:
+            return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        except Exception:
+            pass
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def verify_password(password, hashed):
-    """Verify a password against a bcrypt hash."""
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-    except Exception:
+    """Verify a password against a bcrypt hash, sha256, or plaintext."""
+    if not hashed:
         return False
+    # Bcrypt check
+    if bcrypt and isinstance(hashed, str) and (hashed.startswith('$2b$') or hashed.startswith('$2a$') or hashed.startswith('$2y$')):
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        except Exception:
+            return False
+    # SHA-256 check (support existing database entries)
+    try:
+        if hashlib.sha256(password.encode('utf-8')).hexdigest() == hashed:
+
+            return True
+    except Exception:
+        pass
+    # Plaintext fallback
+    return password == hashed
+
 
 def add_user(username, password, is_admin=False, days=30):
     """Add a new user with expiry date."""
