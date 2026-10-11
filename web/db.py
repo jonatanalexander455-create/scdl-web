@@ -101,6 +101,35 @@ def init_db():
         add_user('admin', 'admin123', is_admin=True, days=99999)
         print('[DB] Default admin created: admin / admin123')
 
+    # Create settings table
+    if DATABASE_URL:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+    else:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+    conn.commit()
+
+    # Ensure default master soundcloud_oauth_token is set
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key = 'soundcloud_oauth_token'").fetchone()
+        if not row or not row['value']:
+            if DATABASE_URL:
+                conn.execute("INSERT INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8') ON CONFLICT (key) DO NOTHING")
+            else:
+                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8')")
+            conn.commit()
+    except Exception as e:
+        print(f"[DB] Error seeding soundcloud_oauth_token: {e}")
+
     # Ensure existing users don't get expired by default
     try:
         conn.execute("UPDATE users SET expires_at = '2099-12-31 23:59:59' WHERE expires_at < '2090-01-01'")
@@ -269,3 +298,35 @@ def change_admin_password(new_password):
     conn.execute('UPDATE users SET password = ? WHERE LOWER(username) = LOWER(?)', (hash_password(new_password), 'admin'))
     conn.commit()
     conn.close()
+
+
+def get_setting(key, default=None):
+    """Retrieve a system setting value."""
+    try:
+        conn = get_db()
+        row = conn.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
+        conn.close()
+        if row and row['value']:
+            return row['value'].strip()
+    except Exception as e:
+        print(f"[DB] Error getting setting {key}: {e}")
+    return default
+
+
+def set_setting(key, value):
+    """Set or update a system setting value."""
+    try:
+        conn = get_db()
+        if DATABASE_URL:
+            conn.execute('''
+                INSERT INTO settings (key, value) VALUES (?, ?)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            ''', (key, value))
+        else:
+            conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB] Error setting {key}: {e}")
+        return False

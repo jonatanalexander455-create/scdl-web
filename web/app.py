@@ -10,7 +10,7 @@ import time
 import secrets
 import re
 import requests as req
-from db import init_db, check_user, get_all_users, add_user, delete_user, extend_user, reset_user_password
+from db import init_db, check_user, get_all_users, add_user, delete_user, extend_user, reset_user_password, get_setting, set_setting
 
 app = Flask(__name__)
 
@@ -191,101 +191,6 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ===================== ADMIN ROUTES =====================
-
-@app.route('/kelola-scdl')
-@admin_required
-def admin():
-    users = get_all_users()
-    disk = get_disk_info()
-    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-    has_cookies = os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 10
-    cookies_content = ''
-    if has_cookies:
-        try:
-            with open(cookies_path, 'r', encoding='utf-8') as f:
-                cookies_content = f.read()
-        except Exception:
-            pass
-    return render_template('admin.html', users=users, disk=disk, has_cookies=has_cookies, cookies_content=cookies_content)
-
-@app.route('/kelola-scdl/add', methods=['POST'])
-@admin_required
-@csrf_required
-def admin_add():
-    username = request.form.get('username', '').strip()
-    password = request.form.get('password', '').strip()
-    days = int(request.form.get('days', 30))
-    
-    success, msg = add_user(username, password, days=days)
-    users = get_all_users()
-    disk = get_disk_info()
-    
-    if success:
-        return render_template('admin.html', users=users, disk=disk, message=f'✅ User "{username}" berhasil ditambahkan ({days} hari)')
-    else:
-        err = f'User "{username}" sudah ada! Klik tombol "Reset Pwd" di daftar pelanggan di bawah jika ingin mengubah password.' if 'sudah dipakai' in msg else msg
-        return render_template('admin.html', users=users, disk=disk, error=f'❌ {err}')
-
-@app.route('/kelola-scdl/delete', methods=['POST'])
-@admin_required
-@csrf_required
-def admin_delete():
-    user_id = int(request.form.get('user_id'))
-    delete_user(user_id)
-    users = get_all_users()
-    disk = get_disk_info()
-    return render_template('admin.html', users=users, disk=disk, message='✅ User berhasil dihapus')
-
-@app.route('/kelola-scdl/extend', methods=['POST'])
-@admin_required
-@csrf_required
-def admin_extend():
-    user_id = int(request.form.get('user_id'))
-    days = int(request.form.get('days', 30))
-    extend_user(user_id, days)
-    users = get_all_users()
-    disk = get_disk_info()
-    return render_template('admin.html', users=users, disk=disk, message=f'✅ Langganan diperpanjang {days} hari')
-
-@app.route('/kelola-scdl/reset-password', methods=['POST'])
-@admin_required
-@csrf_required
-def admin_reset_password():
-    user_id = int(request.form.get('user_id'))
-    new_password = request.form.get('new_password', '').strip()
-    
-    if len(new_password) < 4:
-        users = get_all_users()
-        disk = get_disk_info()
-        return render_template('admin.html', users=users, disk=disk, error='❌ Password minimal 4 karakter')
-        
-    success, msg = reset_user_password(user_id, new_password)
-    users = get_all_users()
-    disk = get_disk_info()
-    
-    if success:
-        return render_template('admin.html', users=users, disk=disk, message='✅ ' + msg)
-    else:
-        return render_template('admin.html', users=users, disk=disk, error='❌ ' + msg)
-
-@app.route('/kelola-scdl/cookies', methods=['POST'])
-@admin_required
-@csrf_required
-def admin_save_cookies():
-    content = request.form.get('cookies_content', '').strip()
-    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-    users = get_all_users()
-    disk = get_disk_info()
-    if content:
-        with open(cookies_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return render_template('admin.html', users=users, disk=disk, has_cookies=True, message='✅ Cookies YouTube berhasil disimpan! Semua lagu DRM sekarang bebas bot-check.')
-    else:
-        if os.path.exists(cookies_path):
-            os.remove(cookies_path)
-        return render_template('admin.html', users=users, disk=disk, has_cookies=False, message='✅ Cookies YouTube telah dikosongkan.')
-
 def get_disk_info():
     """Get disk usage info for downloads folder and VPS."""
     # Downloads folder size
@@ -311,6 +216,107 @@ def get_disk_info():
         'disk_percent': round((disk.used / disk.total) * 100, 1)
     }
 
+def get_admin_context():
+    """Helper to supply full template context for admin views."""
+    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    has_cookies = os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 10
+    cookies_content = ''
+    if has_cookies:
+        try:
+            with open(cookies_path, 'r', encoding='utf-8') as f:
+                cookies_content = f.read()
+        except Exception:
+            pass
+    system_token = get_setting('soundcloud_oauth_token', '') or ''
+    return {
+        'users': get_all_users(),
+        'disk': get_disk_info(),
+        'has_cookies': has_cookies,
+        'cookies_content': cookies_content,
+        'system_token': system_token
+    }
+
+# ===================== ADMIN ROUTES =====================
+
+@app.route('/kelola-scdl')
+@admin_required
+def admin():
+    return render_template('admin.html', **get_admin_context())
+
+@app.route('/kelola-scdl/token', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_save_token():
+    token_val = request.form.get('system_token', '').strip()
+    if token_val.lower().startswith('oauth '):
+        token_val = token_val[6:].strip()
+    set_setting('soundcloud_oauth_token', token_val)
+    msg = '✅ Master SoundCloud Go+ Token berhasil disimpan!' if token_val else '✅ Master Token dikosongkan.'
+    return render_template('admin.html', **get_admin_context(), message=msg)
+
+@app.route('/kelola-scdl/add', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_add():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    days = int(request.form.get('days', 30))
+    
+    success, msg = add_user(username, password, days=days)
+    if success:
+        return render_template('admin.html', **get_admin_context(), message=f'✅ User "{username}" berhasil ditambahkan ({days} hari)')
+    else:
+        err = f'User "{username}" sudah ada! Klik tombol "Reset Pwd" di daftar pelanggan di bawah jika ingin mengubah password.' if 'sudah dipakai' in msg else msg
+        return render_template('admin.html', **get_admin_context(), error=f'❌ {err}')
+
+@app.route('/kelola-scdl/delete', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_delete():
+    user_id = int(request.form.get('user_id'))
+    delete_user(user_id)
+    return render_template('admin.html', **get_admin_context(), message='✅ User berhasil dihapus')
+
+@app.route('/kelola-scdl/extend', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_extend():
+    user_id = int(request.form.get('user_id'))
+    days = int(request.form.get('days', 30))
+    extend_user(user_id, days)
+    return render_template('admin.html', **get_admin_context(), message=f'✅ Langganan diperpanjang {days} hari')
+
+@app.route('/kelola-scdl/reset-password', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_reset_password():
+    user_id = int(request.form.get('user_id'))
+    new_password = request.form.get('new_password', '').strip()
+    
+    if len(new_password) < 4:
+        return render_template('admin.html', **get_admin_context(), error='❌ Password minimal 4 karakter')
+        
+    success, msg = reset_user_password(user_id, new_password)
+    if success:
+        return render_template('admin.html', **get_admin_context(), message='✅ ' + msg)
+    else:
+        return render_template('admin.html', **get_admin_context(), error='❌ ' + msg)
+
+@app.route('/kelola-scdl/cookies', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_save_cookies():
+    content = request.form.get('cookies_content', '').strip()
+    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    if content:
+        with open(cookies_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return render_template('admin.html', **get_admin_context(), message='✅ Cookies YouTube berhasil disimpan! Semua lagu DRM sekarang bebas bot-check.')
+    else:
+        if os.path.exists(cookies_path):
+            os.remove(cookies_path)
+        return render_template('admin.html', **get_admin_context(), message='✅ Cookies YouTube telah dikosongkan.')
+
 @app.route('/kelola-scdl/cleanup', methods=['POST'])
 @admin_required
 @csrf_required
@@ -328,9 +334,7 @@ def admin_cleanup():
         except Exception:
             pass
     
-    users = get_all_users()
-    disk = get_disk_info()
-    return render_template('admin.html', users=users, disk=disk,
+    return render_template('admin.html', **get_admin_context(),
                            message=f'🧹 Berhasil membersihkan {cleaned} item dari storage')
 
 # ===================== MAIN ROUTES =====================
@@ -401,6 +405,16 @@ def download():
     # Clean and resolve auth_token
     clean_token = auth_token.strip() if auth_token else ''
     if not clean_token:
+        # Priority 1: System Master Go+ Token from database settings
+        try:
+            sys_token = get_setting('soundcloud_oauth_token', '')
+            if sys_token:
+                clean_token = sys_token.strip()
+        except Exception as e:
+            app.logger.warning(f"Failed to fetch system soundcloud_oauth_token: {e}")
+
+    if not clean_token:
+        # Priority 2: User personal token
         try:
             from db import get_db
             conn = get_db()

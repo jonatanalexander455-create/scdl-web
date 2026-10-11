@@ -111,6 +111,32 @@
             </form>
         </div>
 
+        <!-- Master SoundCloud Go+ Token Manager -->
+        <div class="admin-card">
+            <div class="admin-card-header">
+                <h2>🔑 Master SoundCloud Go+ Token</h2>
+                {% if system_token %}
+                <span class="admin-card-badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80;">Active</span>
+                {% else %}
+                <span class="admin-card-badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">Kosong</span>
+                {% endif %}
+            </div>
+            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px; line-height: 1.5;">
+                Token SoundCloud Go+ ini otomatis di-inject ke semua download lagu oleh seluruh member. Member tidak perlu repot isi token. Kamu bisa ganti atau update token Go+ kapan saja di sini.
+            </p>
+            <form method="POST" action="/kelola-scdl/token" autocomplete="off">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="add-field" style="margin-bottom: 12px;">
+                    <input type="text" name="system_token" value="{{ system_token or '' }}" placeholder="Paste OAuth Token SoundCloud Go+ di sini..." style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 13px; background: rgba(0,0,0,0.3); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 10px 14px;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="admin-btn-primary">
+                        💾 Simpan Master Token
+                    </button>
+                </div>
+            </form>
+        </div>
+
         <!-- YouTube Cookies Manager -->
         <div class="admin-card">
             <div class="admin-card-header">

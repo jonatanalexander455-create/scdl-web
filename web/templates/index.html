@@ -54,32 +54,6 @@
                     <input type="url" id="url" name="url" placeholder="https://soundcloud.com/artist/track" required>
                 </div>
 
-                <!-- Token Input -->
-                <div class="field">
-                    <label for="auth_token">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        OAuth Token
-                        <span class="label-hint">Opsional untuk lagu publik</span>
-                    </label>
-                    <div class="auth-token-wrapper" style="position: relative; display: flex; gap: 8px;">
-                        <input type="password" id="auth_token" name="auth_token"
-                            placeholder="Paste oauth_token kamu di sini" value="{{ saved_token }}" style="flex: 1;">
-                        <button type="button" id="saveTokenBtn" class="btn-save-token" title="Simpan Token"
-                            style="padding: 0 16px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: var(--text); cursor: pointer; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; justify-content: center;">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                                <polyline points="17 21 17 13 7 13 7 21" />
-                                <polyline points="7 3 7 8 15 8" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
                 <!-- Format Selector -->
                 <div class="field">
                     <label for="format">

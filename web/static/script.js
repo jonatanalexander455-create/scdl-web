@@ -42,7 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         const url = document.getElementById('url').value;
-        const authToken = document.getElementById('auth_token').value;
+        const authTokenEl = document.getElementById('auth_token');
+        const authToken = authTokenEl ? authTokenEl.value.trim() : '';
         const format = document.getElementById('format').value;
 
         if (!url) return;
