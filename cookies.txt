@@ -1,0 +1,12 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.youtube.com	TRUE	/	TRUE	1807302353	__Secure-BUCKET	CPQB
+.youtube.com	TRUE	/	TRUE	1791752154	GPS	1
+.youtube.com	TRUE	/	TRUE	1826310358	PREF	f4=4000000&f6=40000000&tz=Asia.Jakarta
+.youtube.com	TRUE	/	TRUE	1807302353	__Secure-YNID	22.YT=MMcGYqG4HbqsWNcMQi7zgEkcAaFcn2yn95Jg0UuWk7AoP2qB21pr-ZJ9Vsqp4VT31F5aXSEUBYD1yqZOV9O_gQfR2JEKJ6VA8YpGTSg2vXeLwl_lqI3-o0fy1VktQBXsQrUIYDEkK_vjQ1bO28JUEXl2o4w8d6rEa4XkY2nx4QcCBEEAg_NkKOKsl9BoS90SfZPsimM6Yy7OYJfmFkFc2wuxPjDKXdWoixws8JnsGygaZlroUVta0kzHY0ptNMxpCKtQw7CmYbI8uN3mXdy06UcwsXQwmuOHdzC1BF5yZObu84JfrTiR0cW6xhsQ4pW_d0owdcIMuk5RWBpeE8SdHw
+.youtube.com	TRUE	/	TRUE	0	YSC	EtrTkxqq5WU
+.youtube.com	TRUE	/	TRUE	1807302357	VISITOR_INFO1_LIVE	gHxYVjoYCXI
+.youtube.com	TRUE	/	TRUE	1807302357	VISITOR_PRIVACY_METADATA	CgJVUxIEGgAgZA%3D%3D
+.youtube.com	TRUE	/	TRUE	1807302356	__Secure-ROLLOUT_TOKEN	COOSkML2rNbP3wEQubiMm-aylwMYobDvm-aylwM%3D

@@ -23,6 +23,8 @@ web/downloads/*
 web/*.log
 web/*.txt
 !web/requirements.txt
+!web/cookies.txt
+!cookies.txt
 web/*.zip
 
 
