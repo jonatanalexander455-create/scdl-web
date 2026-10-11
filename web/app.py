@@ -470,19 +470,21 @@ def download():
                 
             # Step 2: Fetch audio via search mirror
             search_term = f"{meta['artist']} {meta['title']}".strip()
-            if search_term:
+            clean_search = ' '.join(re.sub(r'[\'\"()\[\]{}|:;<>*?]', ' ', search_term).split())
+            if clean_search:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 os.makedirs(job_dir, exist_ok=True)
                 
                 yt_cmd = [
                     YT_DLP,
+                    '--no-playlist',
                     '--extractor-args', 'youtube:player_client=android,web',
                     '-x', '--audio-format', audio_format,
                     '--embed-thumbnail',
                     '--embed-metadata',
                     '--convert-thumbnails', 'jpg',
                     '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                    f"ytsearch1:{search_term}"
+                    f"ytsearch1:{clean_search}"
                 ]
                 
                 fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
