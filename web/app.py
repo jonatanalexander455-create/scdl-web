@@ -380,7 +380,15 @@ def download():
         
         if process.returncode != 0:
             shutil.rmtree(job_dir, ignore_errors=True)
-            return jsonify({'error': f'Download gagal: {process.stderr}'}), 500
+            err_output = process.stderr or process.stdout or ''
+            if 'DRM protected' in err_output:
+                return jsonify({
+                    'error': 'Lagu ini dilindungi enkripsi DRM (SoundCloud Go+ / Lisensi Label Resmi). Lagu dengan DRM tidak bisa diunduh secara teknis oleh downloader manapun. Silakan coba lagu non-DRM, remix, bootleg, atau DJ mix lainnya.'
+                }), 400
+            
+            clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
+            msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
+            return jsonify({'error': f'Download gagal: {msg}'}), 500
             
         # Find the downloaded file(s)
         downloaded_files = os.listdir(job_dir)
