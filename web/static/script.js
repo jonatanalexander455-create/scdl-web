@@ -38,6 +38,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressStatus = document.getElementById('progressStatus');
+
+    let progressTimer = null;
+
+    function setProgress(percent, text, state = 'normal') {
+        if (!progressContainer) return;
+        progressContainer.style.display = 'block';
+        if (progressBar) {
+            progressBar.style.width = Math.min(100, Math.max(0, percent)) + '%';
+            progressBar.className = 'progress-bar' + (state === 'success' ? ' success' : state === 'error' ? ' error' : '');
+        }
+        if (progressPercent) {
+            progressPercent.textContent = Math.round(percent) + '%';
+        }
+        if (progressStatus && text) {
+            progressStatus.textContent = text;
+        }
+    }
+
     dlForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -53,8 +75,28 @@ document.addEventListener('DOMContentLoaded', () => {
         btnText.textContent = 'Mendownload...';
         btnIcon.style.display = 'none';
         spinner.style.display = 'block';
-        statusMsg.textContent = 'Menghubungi server dan mengunduh lagu... Ini mungkin butuh waktu agak lama untuk playlist.';
-        statusMsg.className = 'status-msg status-loading';
+        statusMsg.textContent = '';
+        statusMsg.className = 'status-msg';
+
+        if (progressTimer) clearInterval(progressTimer);
+        let currentPercent = 10;
+        setProgress(currentPercent, '🔍 Memeriksa link & menghubungkan ke SoundCloud...');
+
+        progressTimer = setInterval(() => {
+            if (currentPercent < 30) {
+                currentPercent += 5;
+                setProgress(currentPercent, '🔍 Autentikasi Master Go+ & mencari stream...');
+            } else if (currentPercent < 65) {
+                currentPercent += 4;
+                setProgress(currentPercent, '🎵 Mengunduh stream audio SoundCloud HQ...');
+            } else if (currentPercent < 88) {
+                currentPercent += 2;
+                setProgress(currentPercent, '🎛️ Memproses format audio & cover art...');
+            } else if (currentPercent < 95) {
+                currentPercent += 0.5;
+                setProgress(currentPercent, '📦 Menyiapkan file untuk disimpan...');
+            }
+        }, 300);
 
         try {
             const response = await fetch('/api/download', {
@@ -80,6 +122,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const blob = await response.blob();
 
+            clearInterval(progressTimer);
+            setProgress(100, '✅ Download selesai! Menyimpan file...', 'success');
+
             let filename = 'soundcloud_download';
             const disposition = response.headers.get('Content-Disposition');
             if (disposition && disposition.indexOf('attachment') !== -1) {
@@ -104,11 +149,13 @@ document.addEventListener('DOMContentLoaded', () => {
             window.URL.revokeObjectURL(downloadUrl);
             document.body.removeChild(a);
 
-            statusMsg.textContent = '✅ Download berhasil dimulai!';
+            statusMsg.textContent = '✅ ' + filename + ' berhasil diunduh!';
             statusMsg.className = 'status-msg status-success';
 
         } catch (error) {
             console.error('Download error:', error);
+            if (progressTimer) clearInterval(progressTimer);
+            setProgress(currentPercent, '❌ Gagal mengunduh lagu', 'error');
             statusMsg.textContent = '❌ ' + error.message;
             statusMsg.className = 'status-msg status-error';
         } finally {
