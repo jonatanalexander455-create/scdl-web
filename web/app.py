@@ -304,13 +304,18 @@ def admin_cleanup():
 @login_required
 def index():
     user_id = session.get('user_id')
-    from db import get_db
-    conn = get_db()
-    user = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (user_id,)).fetchone()
-    conn.close()
-    
-    saved_token = user['oauth_token'] if user and user['oauth_token'] else ''
+    saved_token = ''
+    try:
+        from db import get_db
+        conn = get_db()
+        user = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (user_id,)).fetchone()
+        conn.close()
+        if user and user['oauth_token']:
+            saved_token = user['oauth_token']
+    except Exception as e:
+        app.logger.error(f"Error loading oauth_token: {e}")
     return render_template('index.html', saved_token=saved_token)
+
 
 @app.route('/api/save_token', methods=['POST'])
 @login_required

@@ -25,10 +25,18 @@ def init_db():
             password TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
             expires_at TEXT,
+            oauth_token TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
+    
+    # Migrate oauth_token column if table already existed without it
+    try:
+        conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
+        conn.commit()
+    except Exception:
+        pass
     
     # Create default admin if not exists
     admin = conn.execute('SELECT * FROM users WHERE username = ?', ('admin',)).fetchone()
@@ -42,6 +50,7 @@ def init_db():
         conn.commit()
     except Exception:
         pass
+
     
     conn.close()
 
