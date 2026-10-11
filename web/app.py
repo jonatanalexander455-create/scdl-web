@@ -15,14 +15,13 @@ app = Flask(__name__)
 # Basic paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOADS_DIR = os.path.join(BASE_DIR, 'downloads')
-SECRET_FILE = os.path.join(BASE_DIR, '.secret_key')
+# ProxyFix for Render reverse proxy
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-# Generate or load secret key
-if not os.path.exists(SECRET_FILE):
-    with open(SECRET_FILE, 'wb') as f:
-        f.write(os.urandom(24))
-with open(SECRET_FILE, 'rb') as f:
-    app.secret_key = f.read()
+# Persistent Secret Key across deploys
+SECRET_KEY = os.environ.get('SECRET_KEY', 'scdl-persistent-secret-key-2026-prod-stable')
+app.secret_key = SECRET_KEY.encode('utf-8') if isinstance(SECRET_KEY, str) else SECRET_KEY
 
 # Ensure downloads directory exists
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
@@ -31,7 +30,7 @@ os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 init_db()
 
 # ===================== SECURITY: SESSION TIMEOUT (#4) =====================
-app.permanent_session_lifetime = timedelta(minutes=30)
+app.permanent_session_lifetime = timedelta(days=7)
 
 @app.before_request
 def make_session_permanent():
@@ -39,8 +38,15 @@ def make_session_permanent():
 
 # ===================== SECURITY: RATE LIMITING (#2) =====================
 login_attempts = {}  # { ip: { 'count': int, 'first_attempt': float } }
-MAX_LOGIN_ATTEMPTS = 5
-LOCKOUT_DURATION = 900  # 15 minutes in seconds
+MAX_LOGIN_ATTEMPTS = 15
+LOCKOUT_DURATION = 300  # 5 minutes in seconds
+
+def get_client_ip():
+    """Get real client IP behind reverse proxy."""
+    forwarded = request.headers.get('X-Forwarded-For')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr
 
 def is_rate_limited(ip):
     """Check if an IP is rate-limited."""
@@ -118,7 +124,7 @@ def login():
         return redirect(url_for('index'))
     
     if request.method == 'POST':
-        ip = request.remote_addr
+        ip = get_client_ip()
         
         # Check rate limiting
         if is_rate_limited(ip):
@@ -151,7 +157,7 @@ def admin_login():
         return redirect(url_for('admin'))
     
     if request.method == 'POST':
-        ip = request.remote_addr
+        ip = get_client_ip()
         
         # Check rate limiting
         if is_rate_limited(ip):
@@ -207,7 +213,8 @@ def admin_add():
     if success:
         return render_template('admin.html', users=users, disk=disk, message=f'✅ User "{username}" berhasil ditambahkan ({days} hari)')
     else:
-        return render_template('admin.html', users=users, disk=disk, error=f'❌ {msg}')
+        err = f'User "{username}" sudah ada! Klik tombol "Reset Pwd" di daftar pelanggan di bawah jika ingin mengubah password.' if 'sudah dipakai' in msg else msg
+        return render_template('admin.html', users=users, disk=disk, error=f'❌ {err}')
 
 @app.route('/kelola-scdl/delete', methods=['POST'])
 @admin_required
