@@ -379,6 +379,7 @@ def save_token():
 @app.route('/api/download', methods=['POST'])
 @login_required
 def download():
+    import requests as req
     data = request.json
     url = data.get('url')
     auth_token = data.get('auth_token')
@@ -671,13 +672,12 @@ def download():
                 mirror_err = ''
                 if fallback_proc:
                     mirror_err = (fallback_proc.stderr or fallback_proc.stdout or '').strip()
-                debug_info = f"[URL: {url} | Token: {clean_token[:10]}... | ResDebug: {resolve_debug} | DirectErr: {err_output[:200]}]"
                 if 'how-do-i-pass-cookies-to-yt-dlp' in mirror_err or 'confirm you\'re not a bot' in mirror_err:
-                    msg = f'Lagu ini memiliki enkripsi DRM SoundCloud Go+ dan dibatasi bot-check YouTube di server. {debug_info}'
+                    msg = 'Lagu ini memiliki enkripsi DRM SoundCloud Go+ dan dibatasi bot-check YouTube di server. Admin perlu memperbarui cookies YouTube di Admin Panel (/kelola-scdl).'
                 else:
                     clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
                     msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
-                return jsonify({'error': f'Download gagal: {msg} {debug_info}'}), 500
+                return jsonify({'error': f'Download gagal: {msg}'}), 500
             
         # Find the downloaded file(s)
         downloaded_files = os.listdir(job_dir)
