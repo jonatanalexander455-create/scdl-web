@@ -198,7 +198,16 @@ def logout():
 def admin():
     users = get_all_users()
     disk = get_disk_info()
-    return render_template('admin.html', users=users, disk=disk)
+    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    has_cookies = os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 10
+    cookies_content = ''
+    if has_cookies:
+        try:
+            with open(cookies_path, 'r', encoding='utf-8') as f:
+                cookies_content = f.read()
+        except Exception:
+            pass
+    return render_template('admin.html', users=users, disk=disk, has_cookies=has_cookies, cookies_content=cookies_content)
 
 @app.route('/kelola-scdl/add', methods=['POST'])
 @admin_required
@@ -259,6 +268,23 @@ def admin_reset_password():
         return render_template('admin.html', users=users, disk=disk, message='✅ ' + msg)
     else:
         return render_template('admin.html', users=users, disk=disk, error='❌ ' + msg)
+
+@app.route('/kelola-scdl/cookies', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_save_cookies():
+    content = request.form.get('cookies_content', '').strip()
+    cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    users = get_all_users()
+    disk = get_disk_info()
+    if content:
+        with open(cookies_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return render_template('admin.html', users=users, disk=disk, has_cookies=True, message='✅ Cookies YouTube berhasil disimpan! Semua lagu DRM sekarang bebas bot-check.')
+    else:
+        if os.path.exists(cookies_path):
+            os.remove(cookies_path)
+        return render_template('admin.html', users=users, disk=disk, has_cookies=False, message='✅ Cookies YouTube telah dikosongkan.')
 
 def get_disk_info():
     """Get disk usage info for downloads folder and VPS."""
@@ -431,34 +457,50 @@ def download():
                 if clean_token:
                     headers['Authorization'] = f'OAuth {clean_token}'
                 
-                api_url = f'https://api-v2.soundcloud.com/resolve?url={url}'
-                r = req.get(api_url, headers=headers, timeout=10)
-                if r.status_code == 200:
-                    d = r.json()
-                    title = d.get('title', '').strip()
-                    artist = d.get('user', {}).get('username', '').strip()
-                    artwork = d.get('artwork_url') or d.get('user', {}).get('avatar_url')
-                    if artwork:
-                        artwork = artwork.replace('-large.', '-t500x500.')
-                    dur_ms = d.get('full_duration') or d.get('duration') or 0
-                    meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
-                elif '-' in url:
-                    # Possibly truncated URL, search SoundCloud search API
-                    slug = url.rstrip('/').split('/')[-1].replace('-', ' ').strip()
-                    uploader = url.rstrip('/').split('/')[-2] if len(url.rstrip('/').split('/')) >= 2 else ''
-                    search_query = f"{uploader} {slug}".strip()
-                    sr = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={search_query}&client_id=iZIs9mchVcX5lhVRKiQWVU8hlbxSPerform', headers=headers, timeout=10)
-                    if sr.status_code == 200:
-                        items = sr.json().get('collection', [])
-                        if items:
-                            first = items[0]
-                            title = first.get('title', '').strip()
-                            artist = first.get('user', {}).get('username', '').strip()
-                            artwork = first.get('artwork_url') or first.get('user', {}).get('avatar_url')
-                            if artwork:
-                                artwork = artwork.replace('-large.', '-t500x500.')
-                            dur_ms = first.get('full_duration') or first.get('duration') or 0
-                            meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
+                # Check if yt-dlp extracted track ID in error message (e.g. from redirect or truncated URL)
+                track_id_match = re.search(r'\[soundcloud\]\s+(\d+):', err_output)
+                if track_id_match:
+                    tid = track_id_match.group(1)
+                    tr = req.get(f'https://api-v2.soundcloud.com/tracks/{tid}', headers=headers, timeout=10)
+                    if tr.status_code == 200:
+                        d = tr.json()
+                        title = d.get('title', '').strip()
+                        artist = d.get('user', {}).get('username', '').strip()
+                        artwork = d.get('artwork_url') or d.get('user', {}).get('avatar_url')
+                        if artwork:
+                            artwork = artwork.replace('-large.', '-t500x500.')
+                        dur_ms = d.get('full_duration') or d.get('duration') or 0
+                        meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
+
+                if not meta:
+                    api_url = f'https://api-v2.soundcloud.com/resolve?url={url}'
+                    r = req.get(api_url, headers=headers, timeout=10)
+                    if r.status_code == 200:
+                        d = r.json()
+                        title = d.get('title', '').strip()
+                        artist = d.get('user', {}).get('username', '').strip()
+                        artwork = d.get('artwork_url') or d.get('user', {}).get('avatar_url')
+                        if artwork:
+                            artwork = artwork.replace('-large.', '-t500x500.')
+                        dur_ms = d.get('full_duration') or d.get('duration') or 0
+                        meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
+                    elif '-' in url:
+                        # Possibly truncated URL, search SoundCloud search API
+                        slug = url.rstrip('/').split('/')[-1].replace('-', ' ').strip()
+                        uploader = url.rstrip('/').split('/')[-2] if len(url.rstrip('/').split('/')) >= 2 else ''
+                        search_query = f"{uploader} {slug}".strip()
+                        sr = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={search_query}&client_id=iZIs9mchVcX5lhVRKiQWVU8hlbxSPerform', headers=headers, timeout=10)
+                        if sr.status_code == 200:
+                            items = sr.json().get('collection', [])
+                            if items:
+                                first = items[0]
+                                title = first.get('title', '').strip()
+                                artist = first.get('user', {}).get('username', '').strip()
+                                artwork = first.get('artwork_url') or first.get('user', {}).get('avatar_url')
+                                if artwork:
+                                    artwork = artwork.replace('-large.', '-t500x500.')
+                                dur_ms = first.get('full_duration') or first.get('duration') or 0
+                                meta = {'title': title, 'artist': artist, 'artwork_url': artwork, 'duration_sec': int(dur_ms // 1000)}
             except Exception as e:
                 app.logger.warning(f"Error fetching SoundCloud metadata for mirror: {e}")
             
@@ -573,10 +615,11 @@ def download():
                 mirror_err = ''
                 if fallback_proc:
                     mirror_err = (fallback_proc.stderr or fallback_proc.stdout or '').strip()
-                clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
-                msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
-                if mirror_err:
-                    msg += f" | Mirror: {mirror_err[-250:]}"
+                if 'how-do-i-pass-cookies-to-yt-dlp' in mirror_err or 'confirm you\'re not a bot' in mirror_err:
+                    msg = 'Lagu ini memiliki enkripsi DRM SoundCloud Go+ dan dibatasi bot-check YouTube di server. Admin perlu memperbarui cookies YouTube di Admin Panel (/kelola-scdl).'
+                else:
+                    clean_err = [line for line in err_output.splitlines() if line.startswith('ERROR:')]
+                    msg = clean_err[-1] if clean_err else (err_output.splitlines()[-1] if err_output.splitlines() else 'Gagal mengunduh audio')
                 return jsonify({'error': f'Download gagal: {msg}'}), 500
             
         # Find the downloaded file(s)
