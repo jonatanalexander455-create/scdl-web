@@ -528,22 +528,26 @@ footer a:hover {
 
 @media (max-height: 650px) {
     body {
-        padding: 12px 14px;
-        justify-content: flex-start;
+        padding: 14px 14px;
+        justify-content: center;
     }
 
     .hero {
-        margin-bottom: 1rem;
+        margin-bottom: 1.25rem;
     }
 
     .hero-logo {
-        width: 50px;
-        height: 50px;
+        width: 56px;
+        height: 56px;
         margin-bottom: 0.5rem;
     }
 
     .hero-title {
-        font-size: 1.4rem;
+        font-size: 1.5rem;
+    }
+
+    footer {
+        margin-top: 1.25rem;
     }
 }
 
@@ -556,7 +560,7 @@ footer a:hover {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 14px;
+    padding: 6px 12px 6px 10px;
     background: rgba(255, 255, 255, 0.06);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -567,14 +571,40 @@ footer a:hover {
 
 .user-chip:hover {
     background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.user-chip-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(255, 85, 0, 0.15);
+    color: var(--accent);
+    font-size: 0.75rem;
 }
 
 .user-chip-name {
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    color: var(--text-dim);
+    color: var(--text);
     letter-spacing: 0.2px;
+}
+
+.user-chip-admin-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    text-decoration: none;
+    line-height: 1;
+    transition: transform 0.2s ease;
+}
+
+.user-chip-admin-link:hover {
+    transform: scale(1.2);
 }
 
 .user-chip-logout {
