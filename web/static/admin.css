@@ -37,8 +37,18 @@ body {
     background: var(--admin-bg);
     color: var(--admin-text);
     min-height: 100vh;
+    min-height: 100dvh;
     overflow-x: hidden;
     -webkit-font-smoothing: antialiased;
+}
+
+body.admin-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 24px 16px;
+    box-sizing: border-box;
 }
 
 /* ===== BACKGROUND BLOBS ===== */

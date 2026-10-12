@@ -25,6 +25,7 @@
 
 html {
     scroll-behavior: smooth;
+    height: 100%;
 }
 
 body {
@@ -32,11 +33,18 @@ body {
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     position: relative;
+    padding: 24px 16px;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
 }
 
 /* ===== ANIMATED BACKGROUND BLOBS ===== */
@@ -109,10 +117,14 @@ body {
 /* ===== APP CONTAINER ===== */
 .app {
     width: 100%;
-    max-width: 480px;
-    padding: 2rem 1.5rem;
+    max-width: 440px;
+    margin: auto;
+    padding: 0;
     position: relative;
     z-index: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 /* ===== HERO SECTION ===== */
@@ -467,23 +479,71 @@ footer a:hover {
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 540px) {
+    body {
+        padding: 16px 14px;
+        justify-content: center;
+    }
+
     .app {
-        padding: 1.5rem 1rem;
+        max-width: 100%;
+        margin: auto;
+        padding: 0;
+    }
+
+    .hero {
+        margin-bottom: 1.5rem;
     }
 
     .hero-title {
-        font-size: 1.75rem;
+        font-size: 1.65rem;
+    }
+
+    .hero-sub {
+        font-size: 0.82rem;
     }
 
     .hero-logo {
         width: 64px;
         height: 64px;
         border-radius: 16px;
+        margin-bottom: 0.75rem;
     }
 
     .card {
-        padding: 1.5rem;
+        padding: 1.5rem 1.25rem;
         border-radius: 20px;
+    }
+
+    footer {
+        margin-top: 1.5rem;
+        font-size: 0.7rem;
+    }
+
+    .user-chip {
+        top: 12px;
+        right: 12px;
+        padding: 6px 12px;
+    }
+}
+
+@media (max-height: 650px) {
+    body {
+        padding: 12px 14px;
+        justify-content: flex-start;
+    }
+
+    .hero {
+        margin-bottom: 1rem;
+    }
+
+    .hero-logo {
+        width: 50px;
+        height: 50px;
+        margin-bottom: 0.5rem;
+    }
+
+    .hero-title {
+        font-size: 1.4rem;
     }
 }
 
