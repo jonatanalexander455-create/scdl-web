@@ -117,6 +117,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch {
                     errorText = `HTTP Error: ${response.status}`;
                 }
+                if (response.status === 401 || response.status === 403) {
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2800);
+                }
                 throw new Error(errorText);
             }
 

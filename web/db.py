@@ -158,14 +158,6 @@ def init_db():
     except Exception as e:
         conn.rollback()
         print(f"[DB] Error seeding soundcloud_oauth_token: {e}")
-
-    # Ensure existing users don't get expired by default
-    try:
-        conn.execute("UPDATE users SET expires_at = '2099-12-31 23:59:59' WHERE expires_at < '2090-01-01'")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-
     conn.close()
 
 
@@ -255,19 +247,77 @@ def check_user(username, password):
         return None, 'Username atau password salah'
 
     # Check if expired
-    exp_val = user['expires_at']
+    if not user['is_admin']:
+        exp_val = user['expires_at']
+        if not exp_val:
+            return None, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.'
+
+        if isinstance(exp_val, datetime):
+            expires = exp_val
+        else:
+            try:
+                expires = datetime.strptime(str(exp_val)[:19], '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                try:
+                    expires = datetime.strptime(str(exp_val)[:10], '%Y-%m-%d')
+                except Exception:
+                    return None, '⛔ Format masa aktif akun tidak valid. Silakan hubungi admin.'
+
+        if datetime.now() > expires:
+            return None, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.'
+
+    return dict(user), None
+
+
+def get_user_status(user_id):
+    """
+    Check real-time user validity and subscription expiry.
+    Returns: (is_active: bool, error_message: str or None, user_dict: dict or None)
+    """
+    if not user_id:
+        return False, 'Sesi tidak valid. Silakan login kembali.', None
+
+    try:
+        conn = get_db()
+        user = conn.execute(
+            'SELECT id, username, is_admin, expires_at FROM users WHERE id = ?',
+            (user_id,)
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        print(f"[DB ERROR] Error checking user status: {e}")
+        return False, 'Gagal memeriksa status akun di database.', None
+
+    if not user:
+        return False, 'Akun tidak ditemukan atau sudah dihapus. Silakan hubungi admin.', None
+
+    user_dict = dict(user)
+    if bool(user_dict.get('is_admin')):
+        return True, None, user_dict
+
+    exp_val = user_dict.get('expires_at')
+    if not exp_val:
+        return False, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.', user_dict
+
     if isinstance(exp_val, datetime):
         expires = exp_val
     else:
         try:
             expires = datetime.strptime(str(exp_val)[:19], '%Y-%m-%d %H:%M:%S')
         except Exception:
-            expires = datetime.now() + timedelta(days=365)
+            try:
+                expires = datetime.strptime(str(exp_val)[:10], '%Y-%m-%d')
+            except Exception:
+                return False, '⛔ Format masa aktif akun tidak valid. Silakan hubungi admin.', user_dict
 
-    if datetime.now() > expires and not user['is_admin']:
-        return None, 'Langganan sudah habis'
+    now = datetime.now()
+    if now > expires:
+        return False, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.', user_dict
 
-    return dict(user), None
+    days_left = max(0, (expires - now).days)
+    user_dict['days_left'] = days_left
+    user_dict['expires_dt'] = expires
+    return True, None, user_dict
 
 
 def reset_user_password(user_id, new_password):
@@ -306,8 +356,12 @@ def get_all_users():
                 expires_at = datetime.strptime(str(exp_val)[:19], '%Y-%m-%d %H:%M:%S')
                 user_dict['expires_at'] = str(exp_val)
             except Exception:
-                expires_at = datetime.now() + timedelta(days=30)
-                user_dict['expires_at'] = expires_at.strftime('%Y-%m-%d %H:%M:%S')
+                try:
+                    expires_at = datetime.strptime(str(exp_val)[:10], '%Y-%m-%d')
+                    user_dict['expires_at'] = str(exp_val)
+                except Exception:
+                    expires_at = datetime.now() - timedelta(days=1)
+                    user_dict['expires_at'] = str(exp_val)
 
         created_val = u['created_at']
         if isinstance(created_val, datetime):
@@ -330,11 +384,26 @@ def delete_user(user_id):
 
 
 def extend_user(user_id, days=30):
-    """Extend a user's subscription by X days from now."""
+    """Extend a user's subscription by X days. If active, add to existing expiry; if expired, start from now."""
     conn = get_db()
-    new_expiry = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-    conn.execute('UPDATE users SET expires_at = ? WHERE id = ? AND is_admin = 0', (new_expiry, user_id))
-    conn.commit()
+    user = conn.execute('SELECT expires_at FROM users WHERE id = ? AND is_admin = 0', (user_id,)).fetchone()
+    if user:
+        exp_val = user['expires_at']
+        if isinstance(exp_val, datetime):
+            current_expiry = exp_val
+        else:
+            try:
+                current_expiry = datetime.strptime(str(exp_val)[:19], '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                try:
+                    current_expiry = datetime.strptime(str(exp_val)[:10], '%Y-%m-%d')
+                except Exception:
+                    current_expiry = datetime.now()
+
+        base_time = max(datetime.now(), current_expiry)
+        new_expiry = (base_time + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+        conn.execute('UPDATE users SET expires_at = ? WHERE id = ? AND is_admin = 0', (new_expiry, user_id))
+        conn.commit()
     conn.close()
 
 

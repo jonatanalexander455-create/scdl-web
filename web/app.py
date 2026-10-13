@@ -10,7 +10,10 @@ import time
 import secrets
 import re
 import requests as req
-from db import init_db, check_user, get_all_users, add_user, delete_user, extend_user, reset_user_password, get_setting, set_setting
+from db import (
+    init_db, check_user, get_all_users, add_user, delete_user,
+    extend_user, reset_user_password, get_setting, set_setting, get_user_status
+)
 
 app = Flask(__name__)
 
@@ -95,16 +98,34 @@ app.jinja_env.globals['csrf_token'] = generate_csrf_token
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if 'user_id' not in session:
+        user_id = session.get('user_id')
+        if not user_id:
+            if request.path.startswith('/api/'):
+                return jsonify({'error': '⛔ Silakan login terlebih dahulu.'}), 401
             return redirect(url_for('login'))
+
+        is_active, err_msg, _ = get_user_status(user_id)
+        if not is_active:
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify({'error': err_msg or '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk memperpanjang paket.'}), 403
+            return render_template('login.html', error=err_msg or '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk memperpanjang paket.')
+
         return f(*args, **kwargs)
     return decorated
 
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if 'user_id' not in session or not session.get('is_admin'):
+        user_id = session.get('user_id')
+        if not user_id or not session.get('is_admin'):
             return redirect(url_for('admin_login'))
+
+        is_active, err_msg, user = get_user_status(user_id)
+        if not is_active or not user or not user.get('is_admin'):
+            session.clear()
+            return redirect(url_for('admin_login'))
+
         return f(*args, **kwargs)
     return decorated
 
@@ -343,7 +364,11 @@ def admin_cleanup():
 def index():
     user_id = session.get('user_id')
     saved_token = ''
+    days_left = None
     try:
+        _, _, user_info = get_user_status(user_id)
+        if user_info and not user_info.get('is_admin'):
+            days_left = user_info.get('days_left')
         from db import get_db
         conn = get_db()
         user = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (user_id,)).fetchone()
@@ -351,8 +376,8 @@ def index():
         if user and user['oauth_token']:
             saved_token = user['oauth_token']
     except Exception as e:
-        app.logger.error(f"Error loading oauth_token: {e}")
-    return render_template('index.html', saved_token=saved_token)
+        app.logger.error(f"Error loading index data: {e}")
+    return render_template('index.html', saved_token=saved_token, days_left=days_left)
 
 
 @app.route('/api/save_token', methods=['POST'])
