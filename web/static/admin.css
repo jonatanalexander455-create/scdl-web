@@ -716,6 +716,17 @@ body {
     transform: translateY(-1px);
 }
 
+.act-btn-wa {
+    background: rgba(37, 211, 102, 0.12);
+    color: #25d366;
+    border-color: rgba(37, 211, 102, 0.25);
+}
+
+.act-btn-wa:hover {
+    background: rgba(37, 211, 102, 0.25);
+    transform: translateY(-1px);
+}
+
 .act-btn-reset {
     background: var(--blue-bg);
     color: #38bdf8;
@@ -1037,6 +1048,24 @@ body {
     background: rgba(255, 255, 255, 0.05);
 }
 
+.btn-modal-wa {
+    padding: 9px 16px;
+    border-radius: var(--radius-sm);
+    background: rgba(37, 211, 102, 0.15);
+    border: 1px solid rgba(37, 211, 102, 0.3);
+    color: #25d366;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: all 0.2s ease;
+}
+
+.btn-modal-wa:hover {
+    background: rgba(37, 211, 102, 0.28);
+    transform: translateY(-1px);
+}
+
 .btn-modal-save {
     padding: 9px 18px;
     background: var(--accent-gradient);
@@ -1053,6 +1082,133 @@ body {
 .btn-modal-save:hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 20px rgba(139, 92, 246, 0.45);
+}
+
+/* ===== DOWNLOAD LOGS AUDIT TABLE ===== */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    text-align: left;
+}
+
+.audit-table th {
+    padding: 12px 14px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+.audit-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    vertical-align: middle;
+}
+
+.audit-table tbody tr {
+    transition: background 0.15s ease;
+}
+
+.audit-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.td-time {
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.user-pill {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(139, 92, 246, 0.12);
+    color: #c4b5fd;
+    font-weight: 600;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.td-title {
+    max-width: 320px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.format-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+}
+
+.format-mp3 {
+    background: rgba(255, 85, 0, 0.15);
+    color: #ff7733;
+    border: 1px solid rgba(255, 85, 0, 0.3);
+}
+
+.format-flac, .format-wav {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.format-aac, .format-m4a {
+    background: rgba(56, 189, 248, 0.15);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.td-size {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* Floating Admin Toast */
+.admin-toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    background: #181b26;
+    border: 1px solid rgba(37, 211, 102, 0.4);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(37, 211, 102, 0.2);
+    color: #f8fafc;
+    padding: 12px 20px;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    font-weight: 600;
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(12px);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+}
+
+.admin-toast.show {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 /* Responsiveness */

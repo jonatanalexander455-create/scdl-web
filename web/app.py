@@ -13,7 +13,7 @@ import requests as req
 from db import (
     init_db, check_user, get_all_users, add_user, delete_user,
     extend_user, reset_user_password, get_setting, set_setting, get_user_status,
-    change_admin_password
+    change_admin_password, log_download, get_recent_downloads
 )
 
 app = Flask(__name__)
@@ -27,6 +27,28 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Ensure downloads directory exists
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# Concurrency & Spam Prevention
+active_downloads = set()       # Set of active user_ids downloading
+last_download_time = {}       # { user_id: timestamp }
+
+def auto_cleanup_storage():
+    """Auto-purge temporary download directories older than 30 minutes."""
+    try:
+        now = time.time()
+        for item in os.listdir(DOWNLOADS_DIR):
+            item_path = os.path.join(DOWNLOADS_DIR, item)
+            try:
+                if os.path.isdir(item_path):
+                    if now - os.path.getmtime(item_path) > 1800:
+                        shutil.rmtree(item_path, ignore_errors=True)
+                elif os.path.isfile(item_path) and item.endswith('.zip'):
+                    if now - os.path.getmtime(item_path) > 1800:
+                        os.remove(item_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 # Initialize database
 init_db()
@@ -136,12 +158,21 @@ def login_required(f):
                 return jsonify({'error': '⛔ Silakan login terlebih dahulu.'}), 401
             return redirect(url_for('login'))
 
-        is_active, err_msg, _ = get_user_status(user_id)
+        is_active, err_msg, user_info = get_user_status(user_id)
         if not is_active:
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({'error': err_msg or '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk memperpanjang paket.'}), 403
             return render_template('login.html', error=err_msg or '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk memperpanjang paket.')
+
+        # Anti-Account Sharing: 1 Akun 1 Device (enforce for regular members)
+        if user_info and not user_info.get('is_admin'):
+            db_session_token = user_info.get('session_token')
+            if db_session_token and session.get('session_token') != db_session_token:
+                session.clear()
+                if request.path.startswith('/api/'):
+                    return jsonify({'error': '⛔ Akun kamu telah login di perangkat lain atau password direset. Hanya 1 perangkat yang diizinkan aktif.'}), 401
+                return render_template('login.html', error='⛔ Akun kamu telah aktif di perangkat lain atau password telah direset. Silakan login kembali.')
 
         return f(*args, **kwargs)
     return decorated
@@ -201,6 +232,7 @@ def login():
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = bool(user['is_admin'])
+            session['session_token'] = user.get('session_token')
             return redirect(url_for('index'))
         else:
             record_failed_login(ip)
@@ -236,6 +268,7 @@ def admin_login():
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = True
+            session['session_token'] = user.get('session_token')
             return redirect(url_for('admin'))
         else:
             record_failed_login(ip)
@@ -290,7 +323,8 @@ def get_admin_context():
         'disk': get_disk_info(),
         'has_cookies': has_cookies,
         'cookies_content': cookies_content,
-        'system_token': system_token
+        'system_token': system_token,
+        'recent_downloads': get_recent_downloads(15)
     }
 
 # ===================== ADMIN ROUTES =====================
@@ -484,20 +518,108 @@ def save_token():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/preview', methods=['POST'])
+@login_required
+def preview_track():
+    from urllib.parse import urlparse
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url', '')).strip()
+    if not url:
+        return jsonify({'error': 'URL tidak boleh kosong'}), 400
+    
+    if not (url.startswith('https://') or url.startswith('http://')):
+        return jsonify({'error': 'URL harus diawali http:// atau https://'}), 400
+        
+    try:
+        parsed_url = urlparse(url)
+        hostname = (parsed_url.hostname or '').lower()
+        if not (hostname == 'soundcloud.com' or hostname.endswith('.soundcloud.com')):
+            return jsonify({'error': 'Hanya link resmi SoundCloud yang didukung'}), 400
+    except Exception:
+        return jsonify({'error': 'Format URL tidak valid'}), 400
+
+    if 'on.soundcloud.com' in url:
+        try:
+            resolved = req.get(url, allow_redirects=True, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            if resolved.url and 'soundcloud.com' in resolved.url:
+                url = resolved.url
+        except Exception:
+            pass
+
+    try:
+        r = req.get(f'https://soundcloud.com/oembed?url={url}&format=json', headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            iframe_src = ''
+            html_raw = data.get('html', '')
+            src_match = re.search(r'src="([^"]+)"', html_raw)
+            if src_match:
+                iframe_src = src_match.group(1).replace('visual=true', 'visual=false')
+            
+            clean_title = data.get('title', '')
+            author = data.get('author_name', '')
+            if author and clean_title.endswith(f" by {author}"):
+                clean_title = clean_title[:-len(f" by {author}")]
+
+            return jsonify({
+                'success': True,
+                'title': clean_title,
+                'artist': author,
+                'author_url': data.get('author_url', ''),
+                'artwork_url': data.get('thumbnail_url', ''),
+                'widget_url': iframe_src,
+                'is_playlist': '/playlists/' in iframe_src or '/sets/' in url
+            })
+        else:
+            return jsonify({'error': 'Tidak dapat memuat metadata preview lagu.'}), 404
+    except Exception as e:
+        return jsonify({'error': f'Gagal memuat preview: {str(e)}'}), 500
+
+
 @app.route('/api/download', methods=['POST'])
 @login_required
 def download():
     import requests as req
     from urllib.parse import urlparse
+
+    user_id = session.get('user_id')
+    now = time.time()
+
+    # 1. Anti-spam cooldown (3 seconds)
+    if user_id in last_download_time and (now - last_download_time[user_id]) < 3.0:
+        wait_sec = round(3.0 - (now - last_download_time[user_id]), 1)
+        return jsonify({'error': f'⏳ Harap tunggu {wait_sec} detik sebelum memulai unduhan berikutnya.'}), 429
+
+    # 2. Concurrency lock (1 active download per user)
+    if user_id in active_downloads:
+        return jsonify({'error': '⏳ Kamu sedang memiliki proses unduhan yang berjalan. Tunggu hingga selesai ya.'}), 429
+
+    # Register active download
+    active_downloads.add(user_id)
+    auto_cleanup_storage()
+
     data = request.get_json(silent=True) or {}
     url = str(data.get('url', '')).strip()
     auth_token = str(data.get('auth_token', '')).strip() if data.get('auth_token') else ''
-    audio_format = str(data.get('format', 'mp3')).strip().lower()
+    raw_format = str(data.get('format', 'mp3_320')).strip().lower()
     
-    # Validate format
-    allowed_formats = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'opus', 'm4a']
-    if audio_format not in allowed_formats:
+    # Map bitrates & formats
+    audio_quality = None
+    if raw_format in ('mp3_320', 'mp3'):
         audio_format = 'mp3'
+        audio_quality = '320K'
+    elif raw_format == 'mp3_192':
+        audio_format = 'mp3'
+        audio_quality = '192K'
+    elif raw_format == 'mp3_128':
+        audio_format = 'mp3'
+        audio_quality = '128K'
+    elif raw_format in ('flac', 'wav', 'aac', 'ogg', 'opus', 'm4a'):
+        audio_format = raw_format
+        audio_quality = None
+    else:
+        audio_format = 'mp3'
+        audio_quality = '320K'
     
     # Map format for yt-dlp compatibility ('ogg' uses 'vorbis' codec in yt-dlp)
     ytdl_format = 'vorbis' if audio_format == 'ogg' else audio_format
@@ -609,9 +731,14 @@ def download():
         cmd = [
             YT_DLP,
             '-x', '--audio-format', ytdl_format,
+        ]
+        if audio_quality:
+            cmd.extend(['--audio-quality', audio_quality])
+        cmd.extend([
+            '--max-downloads', '25',
             '--embed-metadata',
             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-        ]
+        ])
         
         # Only embed thumbnail for containers that support it natively (mp3, flac, m4a)
         if audio_format in ('mp3', 'flac', 'm4a'):
@@ -741,9 +868,13 @@ def download():
                         '--extractor-args', 'youtube:player_client=android',
                         '-f', '18/bestaudio/best',
                         '-x', '--audio-format', ytdl_format,
+                    ]
+                    if audio_quality:
+                        yt_cmd.extend(['--audio-quality', audio_quality])
+                    yt_cmd.extend([
                         '--embed-metadata',
                         '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                    ]
+                    ])
                     if audio_format in ('mp3', 'flac', 'm4a'):
                         yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
                     if cookies_file:
@@ -839,6 +970,13 @@ def download():
             file_to_send = audio_files[0]
             filename = os.path.basename(file_to_send)
             
+            try:
+                fsize = round(os.path.getsize(file_to_send) / (1024 * 1024), 2)
+                track_title = filename.rsplit('.', 1)[0]
+                log_download(session.get('username'), track_title, raw_format, fsize)
+            except Exception:
+                pass
+
             @after_this_request
             def remove_file(response):
                 try:
@@ -853,6 +991,12 @@ def download():
             zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
             shutil.make_archive(zip_path[:-4], 'zip', job_dir)
             
+            try:
+                zsize = round(os.path.getsize(zip_path) / (1024 * 1024), 2)
+                log_download(session.get('username'), f"Playlist ({len(audio_files)} lagu)", raw_format, zsize)
+            except Exception:
+                pass
+
             @after_this_request
             def remove_files(response):
                 try:
@@ -868,6 +1012,13 @@ def download():
             file_to_send = files_to_check[0]
             filename = os.path.basename(file_to_send)
             
+            try:
+                fsize = round(os.path.getsize(file_to_send) / (1024 * 1024), 2)
+                track_title = filename.rsplit('.', 1)[0]
+                log_download(session.get('username'), track_title, raw_format, fsize)
+            except Exception:
+                pass
+
             @after_this_request
             def remove_file(response):
                 try:
@@ -886,6 +1037,9 @@ def download():
         traceback.print_exc()
         shutil.rmtree(job_dir, ignore_errors=True)
         return jsonify({'error': str(e)}), 500
+    finally:
+        active_downloads.discard(user_id)
+        last_download_time[user_id] = time.time()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5008))

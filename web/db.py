@@ -113,12 +113,20 @@ def init_db():
         ''')
     conn.commit()
 
-    # Migrate oauth_token column if table already existed without it
+    # Migrate oauth_token and session_token columns
     try:
         if is_pg:
             conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_token TEXT')
+            conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(64)')
         else:
-            conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
+            try:
+                conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
+            except Exception:
+                pass
+            try:
+                conn.execute('ALTER TABLE users ADD COLUMN session_token TEXT')
+            except Exception:
+                pass
         conn.commit()
     except Exception:
         conn.rollback()
@@ -137,11 +145,31 @@ def init_db():
                 value TEXT
             )
         ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS download_logs (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(255) NOT NULL,
+                track_title VARCHAR(500) NOT NULL,
+                audio_format VARCHAR(50) NOT NULL,
+                file_size_mb NUMERIC(8, 2) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
     else:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS download_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                track_title TEXT NOT NULL,
+                audio_format TEXT NOT NULL,
+                file_size_mb REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         ''')
     conn.commit()
@@ -254,7 +282,19 @@ def check_user(username, password):
         if datetime.now() > expires:
             return None, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.'
 
-    return dict(user), None
+    import secrets
+    new_session_token = secrets.token_hex(24)
+    try:
+        conn = get_db()
+        conn.execute('UPDATE users SET session_token = ? WHERE id = ?', (new_session_token, user['id']))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB ERROR] Error updating session_token: {e}")
+
+    user_dict = dict(user)
+    user_dict['session_token'] = new_session_token
+    return user_dict, None
 
 
 def get_user_status(user_id):
@@ -268,7 +308,7 @@ def get_user_status(user_id):
     try:
         conn = get_db()
         user = conn.execute(
-            'SELECT id, username, is_admin, expires_at FROM users WHERE id = ?',
+            'SELECT id, username, is_admin, expires_at, session_token FROM users WHERE id = ?',
             (user_id,)
         ).fetchone()
         conn.close()
@@ -309,15 +349,17 @@ def get_user_status(user_id):
 
 
 def reset_user_password(user_id, new_password):
-    """Reset the password for a specific user ID."""
+    """Reset the password for a specific user ID and invalidate old device sessions."""
+    import secrets
+    new_token = secrets.token_hex(24)
     conn = get_db()
     try:
         conn.execute(
-            'UPDATE users SET password = ? WHERE id = ?',
-            (hash_password(new_password), user_id)
+            'UPDATE users SET password = ?, session_token = ? WHERE id = ?',
+            (hash_password(new_password), new_token, user_id)
         )
         conn.commit()
-        return True, 'Kata sandi berhasil direset'
+        return True, 'Kata sandi berhasil direset dan sesi aktif perangkat sebelumnya telah dikeluarkan'
     except Exception as e:
         return False, str(e)
     finally:
@@ -446,3 +488,41 @@ def set_setting(key, value):
     except Exception as e:
         print(f"[DB] Error setting {key}: {e}")
         return False
+
+
+def log_download(username, track_title, audio_format, file_size_mb):
+    """Log a completed download activity into download_logs."""
+    try:
+        conn = get_db()
+        conn.execute(
+            'INSERT INTO download_logs (username, track_title, audio_format, file_size_mb) VALUES (?, ?, ?, ?)',
+            (username or 'anonymous', str(track_title)[:450], audio_format, float(file_size_mb))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error logging download: {e}")
+
+
+def get_recent_downloads(limit=15):
+    """Retrieve recent download activities for admin dashboard."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            'SELECT id, username, track_title, audio_format, file_size_mb, created_at FROM download_logs ORDER BY id DESC LIMIT ?',
+            (limit,)
+        ).fetchall()
+        conn.close()
+        results = []
+        for r in rows:
+            d = dict(r)
+            cat = d.get('created_at')
+            if isinstance(cat, datetime):
+                d['created_at'] = cat.strftime('%Y-%m-%d %H:%M')
+            else:
+                d['created_at'] = str(cat)[:16]
+            results.append(d)
+        return results
+    except Exception as e:
+        print(f"[DB] Error getting recent downloads: {e}")
+        return []

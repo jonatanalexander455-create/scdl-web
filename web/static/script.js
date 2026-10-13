@@ -171,6 +171,80 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Live Track Preview Fetching
+    const urlInput = document.getElementById('url');
+    const trackPreview = document.getElementById('trackPreview');
+    const previewArtwork = document.getElementById('previewArtwork');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewArtist = document.getElementById('previewArtist');
+    const previewBadge = document.getElementById('previewBadge');
+    const previewPlayerWrap = document.getElementById('previewPlayerWrap');
+    let previewDebounce = null;
+    let lastPreviewUrl = '';
+
+    async function fetchTrackPreview(rawUrl) {
+        const trimmed = rawUrl.trim();
+        if (!trimmed || !trimmed.includes('soundcloud.com')) {
+            if (trackPreview) trackPreview.style.display = 'none';
+            if (previewPlayerWrap) previewPlayerWrap.innerHTML = '';
+            lastPreviewUrl = '';
+            return;
+        }
+
+        if (trimmed === lastPreviewUrl) return;
+        lastPreviewUrl = trimmed;
+
+        try {
+            const res = await fetch('/api/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: trimmed })
+            });
+            if (!res.ok) {
+                if (trackPreview) trackPreview.style.display = 'none';
+                return;
+            }
+            const data = await res.json();
+            if (data.success) {
+                if (previewTitle) previewTitle.textContent = data.title || 'SoundCloud Track';
+                if (previewArtist) previewArtist.textContent = data.artist || 'Unknown Artist';
+                if (previewBadge) previewBadge.textContent = data.is_playlist ? 'Playlist' : 'Lagu';
+                if (previewArtwork) {
+                    if (data.artwork_url) {
+                        previewArtwork.src = data.artwork_url;
+                        previewArtwork.style.display = 'block';
+                    } else {
+                        previewArtwork.style.display = 'none';
+                    }
+                }
+                if (previewPlayerWrap && data.widget_url) {
+                    previewPlayerWrap.innerHTML = `<iframe scrolling="no" frameborder="no" allow="autoplay" src="${data.widget_url}"></iframe>`;
+                }
+                if (trackPreview) trackPreview.style.display = 'block';
+            } else {
+                if (trackPreview) trackPreview.style.display = 'none';
+            }
+        } catch (err) {
+            console.warn('Preview error:', err);
+            if (trackPreview) trackPreview.style.display = 'none';
+        }
+    }
+
+    if (urlInput) {
+        urlInput.addEventListener('input', (e) => {
+            clearTimeout(previewDebounce);
+            previewDebounce = setTimeout(() => {
+                fetchTrackPreview(e.target.value);
+            }, 450);
+        });
+
+        urlInput.addEventListener('paste', (e) => {
+            setTimeout(() => {
+                fetchTrackPreview(urlInput.value);
+            }, 50);
+        });
+    }
+
     // Subtle focus animation
     document.querySelectorAll('.field input').forEach(input => {
         input.addEventListener('focus', () => {

@@ -217,6 +217,12 @@
                             </button>
                         </form>
                         
+                        <button type="button" class="act-btn act-btn-wa" title="Salin format info akun untuk chat WhatsApp / Telegram"
+                            data-username="{{ user.username }}" data-exp="{{ user.expires_at[:10] }}" data-days="{{ user.days_left }}"
+                            onclick="copyWhatsAppFormat(this.dataset.username, this.dataset.exp, this.dataset.days)">
+                            <span>📋 Salin WA</span>
+                        </button>
+
                         <button type="button" class="act-btn act-btn-reset" title="Ubah password member"
                             data-userid="{{ user.id }}" data-username="{{ user.username }}"
                             onclick="openResetModal(this.dataset.userid, this.dataset.username)">
@@ -245,6 +251,59 @@
                 <div class="empty-icon">👥</div>
                 <p>Belum ada pelanggan terdaftar.</p>
                 <p class="empty-sub">Tambahkan pelanggan pertama lewat formulir di atas.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- Section: Riwayat Unduhan Terkini (Download Activity Audit Log) -->
+        <section class="admin-card">
+            <div class="card-head">
+                <div class="card-head-title">
+                    <span class="card-icon">📊</span>
+                    <div>
+                        <h2>Riwayat Unduhan Terkini</h2>
+                        <p class="card-subtitle">Aktivitas unduhan member secara real-time (15 transaksi terakhir).</p>
+                    </div>
+                </div>
+                <span class="card-badge">{{ recent_downloads|length }} Unduhan</span>
+            </div>
+
+            {% if recent_downloads %}
+            <div class="table-responsive">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>Member</th>
+                            <th>Judul Musik</th>
+                            <th>Format</th>
+                            <th>Ukuran</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in recent_downloads %}
+                        <tr>
+                            <td class="td-time">{{ log.created_at }}</td>
+                            <td class="td-user">
+                                <span class="user-pill">👤 {{ log.username }}</span>
+                            </td>
+                            <td class="td-title" title="{{ log.track_title }}">{{ log.track_title }}</td>
+                            <td>
+                                <span class="format-badge format-{{ log.audio_format.split('_')[0] }}">
+                                    {{ log.audio_format | upper }}
+                                </span>
+                            </td>
+                            <td class="td-size">{{ log.file_size_mb }} MB</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-icon">🎵</div>
+                <p>Belum ada aktivitas unduhan yang tercatat.</p>
+                <p class="empty-sub">Riwayat unduhan dari pelanggan akan otomatis tampil di sini.</p>
             </div>
             {% endif %}
         </section>
@@ -399,11 +458,15 @@
 
                 <div class="modal-actions">
                     <button type="button" class="btn-modal-cancel" onclick="closeResetModal()">Batal</button>
+                    <button type="button" class="btn-modal-wa" onclick="copyModalWhatsAppFormat()" title="Salin kredensial baru ke format WhatsApp">📋 Salin WA</button>
                     <button type="submit" class="btn-modal-save">💾 Simpan Password</button>
                 </div>
             </form>
         </div>
     </div>
+
+    <!-- Floating Toast Notification -->
+    <div id="adminToast" class="admin-toast" style="display: none;"></div>
 
     <script>
         // Preset Days selector
@@ -502,6 +565,45 @@
                 closeResetModal();
             }
         });
+
+        // Toast notification
+        function showAdminToast(msg) {
+            const toast = document.getElementById('adminToast');
+            if (!toast) return;
+            toast.textContent = msg;
+            toast.style.display = 'block';
+            toast.className = 'admin-toast show';
+            setTimeout(() => {
+                toast.className = 'admin-toast';
+                setTimeout(() => toast.style.display = 'none', 300);
+            }, 2500);
+        }
+
+        // Copy WhatsApp format for customer item
+        function copyWhatsAppFormat(username, exp, days) {
+            const text = `Halo kak! Ini detail akun langganan SCDL Web kamu:\n\n🌐 Link: https://soundcloud.my.id\n👤 Username: ${username}\n📅 Masa Aktif: ${days} hari (Berakhir: ${exp})\n\nSilakan login dan download lagu sepuasnya ya kak! Jika ada kendala langsung kabari kami. Terima kasih! 🙏`;
+            navigator.clipboard.writeText(text).then(() => {
+                showAdminToast(`✅ Format chat WhatsApp untuk member "${username}" berhasil disalin!`);
+            }).catch(() => {
+                prompt('Salin teks format WhatsApp berikut:', text);
+            });
+        }
+
+        // Copy WhatsApp format from reset modal
+        function copyModalWhatsAppFormat() {
+            const username = document.getElementById('modalUsername').textContent.trim();
+            const newPwd = document.getElementById('modalNewPassword').value.trim();
+            if (!newPwd) {
+                alert('Silakan ketik atau acak password baru terlebih dahulu!');
+                return;
+            }
+            const text = `Halo kak! Password akun SCDL Web kamu telah direset:\n\n🌐 Link: https://soundcloud.my.id\n👤 Username: ${username}\n🔑 Password Baru: ${newPwd}\n\nSilakan langsung login kembali ya kak! Terima kasih! 🙏`;
+            navigator.clipboard.writeText(text).then(() => {
+                showAdminToast(`✅ Detail akun dan password baru untuk "${username}" berhasil disalin!`);
+            }).catch(() => {
+                prompt('Salin teks format WhatsApp berikut:', text);
+            });
+        }
     </script>
 </body>
 

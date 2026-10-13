@@ -66,6 +66,25 @@
                     <input type="url" id="url" name="url" placeholder="https://soundcloud.com/artist/track" required>
                 </div>
 
+                <!-- Live Track Preview Card -->
+                <div id="trackPreview" class="track-preview-card" style="display: none;">
+                    <div class="preview-header">
+                        <span class="preview-indicator">
+                            <span class="preview-pulse"></span>
+                            <span>🎧 Preview Musik</span>
+                        </span>
+                        <span id="previewBadge" class="preview-badge">Lagu</span>
+                    </div>
+                    <div class="preview-body">
+                        <img id="previewArtwork" src="" alt="Artwork" class="preview-artwork">
+                        <div class="preview-meta">
+                            <div id="previewTitle" class="preview-title">-</div>
+                            <div id="previewArtist" class="preview-artist">-</div>
+                        </div>
+                    </div>
+                    <div class="preview-player-wrap" id="previewPlayerWrap"></div>
+                </div>
+
                 <!-- Format Selector -->
                 <div class="field">
                     <label for="format">
@@ -75,15 +94,17 @@
                             <polygon points="10 8 16 12 10 16 10 8" />
                         </svg>
                         Format Audio
-                        <span class="label-hint">Pilih format output</span>
+                        <span class="label-hint">Pilih format & bitrate output</span>
                     </label>
                     <select id="format" name="format">
-                        <option value="mp3" selected>MP3 (320kbps)</option>
-                        <option value="flac">FLAC (Lossless HD)</option>
-                        <option value="wav">WAV (Uncompressed)</option>
-                        <option value="aac">AAC (High Quality)</option>
+                        <option value="mp3_320" selected>MP3 (320kbps — Super HQ)</option>
+                        <option value="mp3_192">MP3 (192kbps — Standar)</option>
+                        <option value="mp3_128">MP3 (128kbps — Hemat Kuota)</option>
+                        <option value="flac">FLAC (Lossless Master)</option>
+                        <option value="wav">WAV (Uncompressed Studio)</option>
+                        <option value="aac">AAC (High Definition)</option>
                         <option value="m4a">M4A (Apple Audio)</option>
-                        <option value="ogg">OGG (High Quality)</option>
+                        <option value="ogg">OGG (Vorbis Pro)</option>
                         <option value="opus">OPUS (Modern Compact)</option>
                     </select>
                 </div>
