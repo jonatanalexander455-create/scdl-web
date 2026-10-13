@@ -508,9 +508,18 @@ def admin_save_telegram():
     token = request.form.get('telegram_bot_token', '').strip()
     admin_id = request.form.get('telegram_admin_id', '').strip()
 
-    if not token:
+    # Smart auto-detection if user accidentally swapped fields
+    if ':' in admin_id and ':' not in token:
+        token, admin_id = admin_id, token
+    elif ':' not in token and token.isdigit():
+        cur_cfg = get_telegram_config()
+        if cur_cfg.get('token') and ':' in cur_cfg['token']:
+            admin_id = token
+            token = cur_cfg['token']
+
+    if not token or ':' not in token:
         return render_template('admin.html', **get_admin_context(),
-                               error='❌ Telegram Bot Token wajib diisi!')
+                               error='❌ Token Bot tidak valid! Pastikan menyalin Token dari @BotFather (mengandung tanda titik dua ":").')
 
     set_telegram_config(token, admin_id)
 
