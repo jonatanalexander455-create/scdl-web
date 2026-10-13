@@ -414,6 +414,9 @@ def download():
     if audio_format not in allowed_formats:
         audio_format = 'mp3'
     
+    # Map format for yt-dlp compatibility ('ogg' uses 'vorbis' codec in yt-dlp)
+    ytdl_format = 'vorbis' if audio_format == 'ogg' else audio_format
+    
     if not url:
         return jsonify({'error': 'URL is required'}), 400
         
@@ -505,12 +508,14 @@ def download():
         YT_DLP = shutil.which('yt-dlp') or '/Users/johoktan11/Library/Python/3.9/bin/yt-dlp' or 'yt-dlp'
         cmd = [
             YT_DLP,
-            '-x', '--audio-format', audio_format,
-            '--embed-thumbnail',
+            '-x', '--audio-format', ytdl_format,
             '--embed-metadata',
-            '--convert-thumbnails', 'jpg',
             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
         ]
+        
+        # Only embed thumbnail for containers that support it (mp3, flac, m4a, opus, ogg)
+        if audio_format in ('mp3', 'flac', 'm4a', 'opus', 'ogg'):
+            cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
         
         if clean_token:
             cmd.extend([
@@ -635,10 +640,12 @@ def download():
                         '--no-abort-on-error',
                         '--extractor-args', 'youtube:player_client=android',
                         '-f', '18/bestaudio/best',
-                        '-x', '--audio-format', audio_format,
+                        '-x', '--audio-format', ytdl_format,
                         '--embed-metadata',
                         '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
                     ]
+                    if audio_format in ('mp3', 'flac', 'm4a', 'opus', 'ogg'):
+                        yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
                     if cookies_file:
                         yt_cmd.extend(['--cookies', cookies_file])
                     if mf:
