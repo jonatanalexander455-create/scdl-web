@@ -264,10 +264,9 @@ def admin_add():
     
     success, msg = add_user(username, password, days=days)
     if success:
-        return render_template('admin.html', **get_admin_context(), message=f'✅ User "{username}" berhasil ditambahkan ({days} hari)')
+        return render_template('admin.html', **get_admin_context(), message=f'✅ {msg}')
     else:
-        err = f'User "{username}" sudah ada! Klik tombol "Reset Pwd" di daftar pelanggan di bawah jika ingin mengubah password.' if 'sudah dipakai' in msg else msg
-        return render_template('admin.html', **get_admin_context(), error=f'❌ {err}')
+        return render_template('admin.html', **get_admin_context(), error=f'❌ {msg}')
 
 @app.route('/kelola-scdl/delete', methods=['POST'])
 @admin_required

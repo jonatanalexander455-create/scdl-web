@@ -10,14 +10,25 @@ except ImportError:
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scdl.db')
 
+def _format_pg_dsn(dsn):
+    if not dsn:
+        return dsn
+    # Fix internal Render hostname when connecting across regions (e.g. Virginia web service -> Oregon postgres)
+    if '@dpg-' in dsn and '.render.com' not in dsn:
+        parts = dsn.split('@', 1)
+        if len(parts) == 2 and '/' in parts[1]:
+            host_part, db_part = parts[1].split('/', 1)
+            dsn = f"{parts[0]}@{host_part}.oregon-postgres.render.com/{db_part}"
+    if 'sslmode=' not in dsn and not dsn.startswith('postgresql://localhost'):
+        separator = '&' if '?' in dsn else '?'
+        dsn = f"{dsn}{separator}sslmode=require"
+    return dsn
+
 class PgDBConnection:
     def __init__(self, dsn):
         import psycopg2
         import psycopg2.extras
-        # Ensure sslmode=require for cloud postgres if not specified
-        if 'sslmode=' not in dsn and not dsn.startswith('postgresql://localhost'):
-            separator = '&' if '?' in dsn else '?'
-            dsn = f"{dsn}{separator}sslmode=require"
+        dsn = _format_pg_dsn(dsn)
         self.conn = psycopg2.connect(dsn)
         self.DictCursor = psycopg2.extras.DictCursor
 
@@ -63,18 +74,20 @@ class SqliteDBConnection:
 
 
 def get_db():
-    if DATABASE_URL:
+    db_url = os.environ.get('DATABASE_URL', '') or DATABASE_URL
+    if db_url:
         try:
-            return PgDBConnection(DATABASE_URL)
+            return PgDBConnection(db_url)
         except Exception as e:
-            print(f"[DB] Error connecting to PostgreSQL ({e}), falling back to SQLite")
+            print(f"[DB ERROR] Error connecting to PostgreSQL ({e}), falling back to SQLite")
     return SqliteDBConnection(DB_PATH)
 
 
 def init_db():
     """Create tables and default admin account."""
     conn = get_db()
-    if DATABASE_URL:
+    is_pg = isinstance(conn, PgDBConnection)
+    if is_pg:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -102,7 +115,7 @@ def init_db():
 
     # Migrate oauth_token column if table already existed without it
     try:
-        if DATABASE_URL:
+        if is_pg:
             conn.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_token TEXT')
         else:
             conn.execute('ALTER TABLE users ADD COLUMN oauth_token TEXT')
@@ -117,7 +130,7 @@ def init_db():
         print('[DB] Default admin created: admin / admin123')
 
     # Create settings table
-    if DATABASE_URL:
+    if is_pg:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS settings (
                 key VARCHAR(100) PRIMARY KEY,
@@ -137,7 +150,7 @@ def init_db():
     try:
         row = conn.execute("SELECT value FROM settings WHERE key = 'soundcloud_oauth_token'").fetchone()
         if not row or not row['value']:
-            if DATABASE_URL:
+            if is_pg:
                 conn.execute("INSERT INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8') ON CONFLICT (key) DO NOTHING")
             else:
                 conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8')")
@@ -187,10 +200,30 @@ def verify_password(password, hashed):
 
 
 def add_user(username, password, is_admin=False, days=30):
-    """Add a new user with expiry date."""
+    """Add a new user with expiry date, or update password & expiry if user already exists."""
     username = username.strip()
     conn = get_db()
     expires_at = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+    # Check if user already exists
+    existing = conn.execute(
+        'SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)',
+        (username,)
+    ).fetchone()
+
+    if existing:
+        try:
+            conn.execute(
+                'UPDATE users SET password = ?, expires_at = ? WHERE id = ?',
+                (hash_password(password), expires_at, existing['id'])
+            )
+            conn.commit()
+            conn.close()
+            return True, f'User "{existing["username"]}" berhasil diperbarui! Password baru & masa aktif ({days} hari) sudah aktif.'
+        except Exception as e:
+            conn.close()
+            return False, f'Gagal memperbarui user: {e}'
+
     try:
         conn.execute(
             'INSERT INTO users (username, password, is_admin, expires_at) VALUES (?, ?, ?, ?)',
@@ -198,12 +231,9 @@ def add_user(username, password, is_admin=False, days=30):
         )
         conn.commit()
         conn.close()
-        return True, 'User berhasil ditambahkan'
+        return True, f'User "{username}" berhasil ditambahkan ({days} hari)'
     except Exception as e:
         conn.close()
-        err_msg = str(e).lower()
-        if 'unique' in err_msg or 'duplicate' in err_msg or 'constraint' in err_msg:
-            return False, 'Username sudah dipakai'
         return False, f'Gagal menambahkan user: {e}'
 
 
@@ -333,7 +363,7 @@ def set_setting(key, value):
     """Set or update a system setting value."""
     try:
         conn = get_db()
-        if DATABASE_URL:
+        if isinstance(conn, PgDBConnection):
             conn.execute('''
                 INSERT INTO settings (key, value) VALUES (?, ?)
                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
