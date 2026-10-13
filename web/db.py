@@ -1,5 +1,6 @@
 import os
 import hashlib
+import math
 from datetime import datetime, timedelta
 
 try:
@@ -342,7 +343,8 @@ def get_user_status(user_id):
     if now > expires:
         return False, '⛔ Masa aktif langganan akun kamu sudah habis (expired). Silakan hubungi admin untuk perpanjang paket.', user_dict
 
-    days_left = max(0, (expires - now).days)
+    delta = expires - now
+    days_left = max(0, int(math.ceil(delta.total_seconds() / 86400.0))) if delta.total_seconds() > 0 else 0
     user_dict['days_left'] = days_left
     user_dict['expires_dt'] = expires
     return True, None, user_dict
@@ -400,7 +402,8 @@ def get_all_users():
             user_dict['created_at'] = str(created_val)
 
         user_dict['is_active'] = datetime.now() < expires_at
-        user_dict['days_left'] = max(0, (expires_at - datetime.now()).days)
+        delta_u = expires_at - datetime.now()
+        user_dict['days_left'] = max(0, int(math.ceil(delta_u.total_seconds() / 86400.0))) if delta_u.total_seconds() > 0 else 0
         result.append(user_dict)
     return result
 
@@ -526,3 +529,37 @@ def get_recent_downloads(limit=15):
     except Exception as e:
         print(f"[DB] Error getting recent downloads: {e}")
         return []
+
+
+def get_user_by_username(username):
+    """Retrieve user dictionary by username (case-insensitive) with status calculation."""
+    try:
+        conn = get_db()
+        user = conn.execute(
+            'SELECT id, username, is_admin, expires_at, oauth_token, created_at, session_token FROM users WHERE LOWER(username) = LOWER(?)',
+            (str(username).strip(),)
+        ).fetchone()
+        conn.close()
+        if not user:
+            return None
+        u_dict = dict(user)
+        if u_dict.get('is_admin'):
+            u_dict['is_active'] = True
+            u_dict['days_left'] = 99999
+        elif u_dict.get('expires_at'):
+            try:
+                expires = datetime.strptime(str(u_dict['expires_at'])[:19], '%Y-%m-%d %H:%M:%S')
+                u_dict['is_active'] = datetime.now() < expires
+                delta = expires - datetime.now()
+                u_dict['days_left'] = max(0, int(math.ceil(delta.total_seconds() / 86400.0))) if delta.total_seconds() > 0 else 0
+            except Exception:
+                u_dict['is_active'] = True
+                u_dict['days_left'] = 0
+        else:
+            u_dict['is_active'] = False
+            u_dict['days_left'] = 0
+        return u_dict
+    except Exception as e:
+        print(f"[DB] Error getting user by username: {e}")
+        return None
+

@@ -388,6 +388,65 @@
                     </button>
                 </form>
             </section>
+
+            <!-- Telegram Bot Admin Integration Card -->
+            <section class="admin-card settings-card">
+                <div class="card-head">
+                    <div class="card-head-title">
+                        <span class="card-icon">🤖</span>
+                        <div>
+                            <h2>Bot Telegram Admin</h2>
+                            <p class="card-subtitle">Kontrol admin via chat Telegram.</p>
+                        </div>
+                    </div>
+                    {% if telegram_config and telegram_config.is_configured %}
+                    <span class="tag-status tag-status-active">● Terhubung</span>
+                    {% else %}
+                    <span class="tag-status tag-status-expired">○ Nonaktif</span>
+                    {% endif %}
+                </div>
+
+                <form method="POST" action="/kelola-scdl/telegram" autocomplete="off" style="display:flex; flex-direction:column; gap:8px;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <label style="font-size:0.75rem; color:#94a3b8; font-weight:600;">TOKEN BOT TELEGRAM (@BotFather)</label>
+                        <div class="token-input-wrap" style="margin-bottom:0;">
+                            <input type="password" id="tgTokenInput" name="telegram_bot_token" 
+                                value="{{ telegram_config.token if telegram_config else '' }}"
+                                placeholder="Contoh: 7654321098:AAH..." class="token-field" required>
+                            <button type="button" class="toggle-view-btn" onclick="toggleFieldVisibility('tgTokenInput')" title="Lihat/Sembunyikan">👁️</button>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <label style="font-size:0.75rem; color:#94a3b8; font-weight:600;">TELEGRAM ADMIN CHAT ID</label>
+                        <input type="text" name="telegram_admin_id" 
+                            value="{{ telegram_config.admin_id if telegram_config else '' }}"
+                            placeholder="Contoh: 1234567890 (ID Akun Anda)" class="token-field" style="padding:10px 14px;">
+                        <span style="font-size:0.7rem; color:#64748b; line-height:1.3;">
+                            💡 Kirim pesan apapun ke bot Anda, bot akan otomatis mengirimkan Chat ID Anda jika belum tahu.
+                        </span>
+                    </div>
+
+                    <div style="display:flex; gap:8px; margin-top:4px;">
+                        <button type="submit" name="action" value="save" class="btn-save-setting" style="flex:1;">
+                            🚀 Hubungkan Bot
+                        </button>
+                        {% if telegram_config and telegram_config.is_configured %}
+                        <button type="submit" name="action" value="disconnect" class="btn-save-setting" 
+                            style="background:rgba(239, 68, 68, 0.15); border:1px solid rgba(239, 68, 68, 0.4); color:#fca5a5; width:auto; padding:0 12px;"
+                            onclick="return confirm('Apakah Anda yakin ingin memutuskan bot Telegram?');" title="Putuskan Bot">
+                            🔌 Putus
+                        </button>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <div class="tg-guide-box" style="margin-top:8px; padding:8px 10px; background:rgba(56, 189, 248, 0.06); border:1px dashed rgba(56, 189, 248, 0.25); border-radius:8px; font-size:0.72rem; color:#93c5fd; line-height:1.4;">
+                    <strong>Perintah Bot:</strong> <code>/menu</code> • <code>/users</code> • <code>/tambah user pass 30</code> • <code>/perpanjang user 30</code> • <code>/resetpass user baru</code> • <code>/hapus user</code> • <code>/status</code> • <code>/log</code>
+                </div>
+            </section>
         </div>
 
         <!-- Section: Storage & Maintenance -->
@@ -483,6 +542,13 @@
                 input.type = 'text';
             } else {
                 input.type = 'password';
+            }
+        }
+
+        function toggleFieldVisibility(id) {
+            const input = document.getElementById(id);
+            if (input) {
+                input.type = input.type === 'password' ? 'text' : 'password';
             }
         }
 

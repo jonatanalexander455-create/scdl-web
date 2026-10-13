@@ -15,6 +15,22 @@ from db import (
     extend_user, reset_user_password, get_setting, set_setting, get_user_status,
     change_admin_password, log_download, get_recent_downloads
 )
+try:
+    from telegram_bot import (
+        get_telegram_config,
+        set_telegram_config,
+        register_webhook,
+        delete_webhook,
+        handle_telegram_update
+    )
+except ImportError:
+    from web.telegram_bot import (
+        get_telegram_config,
+        set_telegram_config,
+        register_webhook,
+        delete_webhook,
+        handle_telegram_update
+    )
 
 app = Flask(__name__)
 
@@ -318,13 +334,15 @@ def get_admin_context():
         except Exception:
             pass
     system_token = get_setting('soundcloud_oauth_token', '') or ''
+    telegram_config = get_telegram_config()
     return {
         'users': get_all_users(),
         'disk': get_disk_info(),
         'has_cookies': has_cookies,
         'cookies_content': cookies_content,
         'system_token': system_token,
-        'recent_downloads': get_recent_downloads(15)
+        'recent_downloads': get_recent_downloads(15),
+        'telegram_config': telegram_config
     }
 
 # ===================== ADMIN ROUTES =====================
@@ -472,6 +490,55 @@ def admin_cleanup():
     
     return render_template('admin.html', **get_admin_context(),
                            message=f'🧹 Berhasil membersihkan {cleaned} item dari storage')
+
+@app.route('/kelola-scdl/telegram', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_save_telegram():
+    action = request.form.get('action', 'save')
+
+    if action == 'disconnect':
+        config = get_telegram_config()
+        if config.get('token'):
+            delete_webhook(config['token'])
+        set_telegram_config('', '')
+        return render_template('admin.html', **get_admin_context(),
+                               message='🔌 Koneksi Telegram Bot berhasil diputuskan.')
+
+    token = request.form.get('telegram_bot_token', '').strip()
+    admin_id = request.form.get('telegram_admin_id', '').strip()
+
+    if not token:
+        return render_template('admin.html', **get_admin_context(),
+                               error='❌ Telegram Bot Token wajib diisi!')
+
+    set_telegram_config(token, admin_id)
+
+    # Automatically register webhook with Telegram
+    webhook_url = "https://soundcloud.my.id/api/telegram/webhook"
+    ok, status_msg = register_webhook(token, webhook_url)
+
+    if ok:
+        msg = f'🤖 Telegram Bot berhasil terhubung & Webhook aktif! ({status_msg}). Silakan buka bot Anda di Telegram dan ketik /start atau /menu.'
+        return render_template('admin.html', **get_admin_context(), message=msg)
+    else:
+        err = f'⚠️ Konfigurasi disimpan, namun registrasi webhook Telegram gagal: {status_msg}'
+        return render_template('admin.html', **get_admin_context(), error=err)
+
+
+@app.route('/api/telegram/webhook', methods=['POST'])
+def telegram_webhook():
+    """Telegram Webhook endpoint (Public receiver for Telegram Bot API)."""
+    update = request.get_json(silent=True, force=True)
+    if not update:
+        return jsonify({'error': 'Invalid payload, JSON required'}), 400
+
+    try:
+        res = handle_telegram_update(update)
+        return jsonify({'status': 'ok', 'result': res}), 200
+    except Exception as e:
+        app.logger.error(f"[Telegram Webhook] Error handling update: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 200
 
 # ===================== MAIN ROUTES =====================
 
