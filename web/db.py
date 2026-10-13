@@ -146,18 +146,6 @@ def init_db():
         ''')
     conn.commit()
 
-    # Ensure default master soundcloud_oauth_token is set
-    try:
-        row = conn.execute("SELECT value FROM settings WHERE key = 'soundcloud_oauth_token'").fetchone()
-        if not row or not row['value']:
-            if is_pg:
-                conn.execute("INSERT INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8') ON CONFLICT (key) DO NOTHING")
-            else:
-                conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('soundcloud_oauth_token', '2-333554-1763323227-qmeHBALX3Fjd8')")
-            conn.commit()
-    except Exception as e:
-        conn.rollback()
-        print(f"[DB] Error seeding soundcloud_oauth_token: {e}")
     conn.close()
 
 
@@ -407,12 +395,25 @@ def extend_user(user_id, days=30):
     conn.close()
 
 
-def change_admin_password(new_password):
-    """Change admin password."""
+def change_admin_password(admin_id, old_password, new_password):
+    """Change admin password with old password verification and bcrypt hashing."""
     conn = get_db()
-    conn.execute('UPDATE users SET password = ? WHERE LOWER(username) = LOWER(?)', (hash_password(new_password), 'admin'))
-    conn.commit()
-    conn.close()
+    try:
+        user = conn.execute('SELECT password FROM users WHERE id = ? AND is_admin = 1', (admin_id,)).fetchone()
+        if not user:
+            return False, 'Akun admin tidak ditemukan'
+        if not verify_password(old_password, user['password']):
+            return False, 'Password lama salah'
+        if len(new_password) < 6:
+            return False, 'Password baru minimal 6 karakter'
+            
+        conn.execute('UPDATE users SET password = ? WHERE id = ? AND is_admin = 1', (hash_password(new_password), admin_id))
+        conn.commit()
+        return True, 'Password admin berhasil diubah!'
+    except Exception as e:
+        return False, f'Gagal mengubah password admin: {e}'
+    finally:
+        conn.close()
 
 
 def get_setting(key, default=None):

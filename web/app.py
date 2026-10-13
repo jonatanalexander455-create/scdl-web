@@ -12,7 +12,8 @@ import re
 import requests as req
 from db import (
     init_db, check_user, get_all_users, add_user, delete_user,
-    extend_user, reset_user_password, get_setting, set_setting, get_user_status
+    extend_user, reset_user_password, get_setting, set_setting, get_user_status,
+    change_admin_password
 )
 
 app = Flask(__name__)
@@ -24,22 +25,53 @@ DOWNLOADS_DIR = os.path.join(BASE_DIR, 'downloads')
 from werkzeug.middleware.proxy_fix import ProxyFix
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-# Persistent Secret Key across deploys
-SECRET_KEY = os.environ.get('SECRET_KEY', 'scdl-persistent-secret-key-2026-prod-stable')
-app.secret_key = SECRET_KEY.encode('utf-8') if isinstance(SECRET_KEY, str) else SECRET_KEY
-
 # Ensure downloads directory exists
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
 # Initialize database
 init_db()
 
-# ===================== SECURITY: SESSION TIMEOUT (#4) =====================
+# ===================== SECURITY: DYNAMIC CRYPTOGRAPHIC SECRET KEY =====================
+def get_secure_secret_key():
+    """Retrieve secret key from ENV, or persist a cryptographically secure 64-char key in database."""
+    env_key = os.environ.get('SECRET_KEY')
+    if env_key and len(env_key.strip()) >= 16:
+        return env_key.strip()
+    try:
+        db_key = get_setting('flask_secret_key')
+        if db_key and len(db_key.strip()) >= 32:
+            return db_key.strip()
+        new_key = secrets.token_hex(32)
+        set_setting('flask_secret_key', new_key)
+        return new_key
+    except Exception as e:
+        app.logger.warning(f"Error fetching/saving flask_secret_key: {e}")
+        return secrets.token_hex(32)
+
+app.secret_key = get_secure_secret_key()
+
+# ===================== SECURITY: COOKIE & PAYLOAD CONFIG =====================
 app.permanent_session_lifetime = timedelta(days=7)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # Max payload limit 16MB
+)
 
 @app.before_request
 def make_session_permanent():
     session.permanent = True
+
+# ===================== SECURITY: HTTP SECURITY HEADERS =====================
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    return response
 
 # ===================== SECURITY: RATE LIMITING (#2) =====================
 login_attempts = {}  # { ip: { 'count': int, 'first_attempt': float } }
@@ -164,6 +196,8 @@ def login():
         user, error = check_user(username, password)
         if user:
             clear_login_attempts(ip)
+            session.clear()
+            session.permanent = True
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = bool(user['is_admin'])
@@ -197,6 +231,8 @@ def admin_login():
         user, error = check_user(username, password)
         if user and user['is_admin']:
             clear_login_attempts(ip)
+            session.clear()
+            session.permanent = True
             session['user_id'] = user['id']
             session['username'] = user['username']
             session['is_admin'] = True
@@ -275,13 +311,48 @@ def admin_save_token():
     msg = '✅ Master SoundCloud Go+ Token berhasil disimpan!' if token_val else '✅ Master Token dikosongkan.'
     return render_template('admin.html', **get_admin_context(), message=msg)
 
+@app.route('/kelola-scdl/change-password', methods=['POST'])
+@admin_required
+@csrf_required
+def admin_change_password():
+    user_id = session.get('user_id')
+    old_password = request.form.get('old_password', '').strip()
+    new_password = request.form.get('new_password', '').strip()
+    confirm_password = request.form.get('confirm_password', '').strip()
+    
+    if not old_password or not new_password:
+        return render_template('admin.html', **get_admin_context(), error='❌ Password lama dan baru wajib diisi')
+    if new_password != confirm_password:
+        return render_template('admin.html', **get_admin_context(), error='❌ Konfirmasi password baru tidak cocok')
+    if len(new_password) < 6:
+        return render_template('admin.html', **get_admin_context(), error='❌ Password baru minimal 6 karakter')
+        
+    success, msg = change_admin_password(user_id, old_password, new_password)
+    if success:
+        return render_template('admin.html', **get_admin_context(), message='✅ ' + msg)
+    else:
+        return render_template('admin.html', **get_admin_context(), error='❌ ' + msg)
+
 @app.route('/kelola-scdl/add', methods=['POST'])
 @admin_required
 @csrf_required
 def admin_add():
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '').strip()
-    days = int(request.form.get('days', 30))
+    days_val = request.form.get('days', '30').strip()
+    
+    if not re.match(r'^[a-zA-Z0-9_.-]{3,30}$', username):
+        return render_template('admin.html', **get_admin_context(), error='❌ Username hanya boleh berisi huruf, angka, titik, strip (-), dan underscore (_), panjang 3-30 karakter')
+        
+    try:
+        days = int(days_val)
+        if days < 1 or days > 3650:
+            return render_template('admin.html', **get_admin_context(), error='❌ Masa aktif harus antara 1 sampai 3650 hari')
+    except (ValueError, TypeError):
+        return render_template('admin.html', **get_admin_context(), error='❌ Format jumlah hari tidak valid')
+        
+    if len(password) < 4:
+        return render_template('admin.html', **get_admin_context(), error='❌ Password minimal 4 karakter')
     
     success, msg = add_user(username, password, days=days)
     if success:
@@ -293,7 +364,10 @@ def admin_add():
 @admin_required
 @csrf_required
 def admin_delete():
-    user_id = int(request.form.get('user_id'))
+    try:
+        user_id = int(request.form.get('user_id', 0))
+    except (ValueError, TypeError):
+        return render_template('admin.html', **get_admin_context(), error='❌ ID user tidak valid')
     delete_user(user_id)
     return render_template('admin.html', **get_admin_context(), message='✅ User berhasil dihapus')
 
@@ -301,8 +375,13 @@ def admin_delete():
 @admin_required
 @csrf_required
 def admin_extend():
-    user_id = int(request.form.get('user_id'))
-    days = int(request.form.get('days', 30))
+    try:
+        user_id = int(request.form.get('user_id', 0))
+        days = int(request.form.get('days', 30))
+        if days < 1 or days > 3650:
+            return render_template('admin.html', **get_admin_context(), error='❌ Durasi perpanjangan harus 1 sampai 3650 hari')
+    except (ValueError, TypeError):
+        return render_template('admin.html', **get_admin_context(), error='❌ ID user atau format hari tidak valid')
     extend_user(user_id, days)
     return render_template('admin.html', **get_admin_context(), message=f'✅ Langganan diperpanjang {days} hari')
 
@@ -310,7 +389,10 @@ def admin_extend():
 @admin_required
 @csrf_required
 def admin_reset_password():
-    user_id = int(request.form.get('user_id'))
+    try:
+        user_id = int(request.form.get('user_id', 0))
+    except (ValueError, TypeError):
+        return render_template('admin.html', **get_admin_context(), error='❌ ID user tidak valid')
     new_password = request.form.get('new_password', '').strip()
     
     if len(new_password) < 4:
@@ -383,12 +465,14 @@ def index():
 @app.route('/api/save_token', methods=['POST'])
 @login_required
 def save_token():
-    data = request.json
-    auth_token = data.get('auth_token', '').strip()
+    data = request.get_json(silent=True) or {}
+    auth_token = str(data.get('auth_token', '')).strip()
     user_id = session.get('user_id')
     
     if not auth_token:
         return jsonify({'error': 'Token tidak boleh kosong'}), 400
+    if len(auth_token) > 500:
+        return jsonify({'error': 'Format token tidak valid'}), 400
         
     try:
         from db import get_db
@@ -404,10 +488,11 @@ def save_token():
 @login_required
 def download():
     import requests as req
-    data = request.json
-    url = data.get('url')
-    auth_token = data.get('auth_token')
-    audio_format = data.get('format', 'mp3')
+    from urllib.parse import urlparse
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url', '')).strip()
+    auth_token = str(data.get('auth_token', '')).strip() if data.get('auth_token') else ''
+    audio_format = str(data.get('format', 'mp3')).strip().lower()
     
     # Validate format
     allowed_formats = ['mp3', 'flac', 'wav', 'aac', 'ogg', 'opus', 'm4a']
@@ -418,12 +503,27 @@ def download():
     ytdl_format = 'vorbis' if audio_format == 'ogg' else audio_format
     
     if not url:
-        return jsonify({'error': 'URL is required'}), 400
+        return jsonify({'error': 'URL wajib diisi'}), 400
+        
+    # Prevent CLI flag injection and oversize inputs
+    if url.startswith('-') or len(url) > 1000:
+        return jsonify({'error': 'Format URL tidak valid'}), 400
+        
+    if not (url.startswith('https://') or url.startswith('http://')):
+        return jsonify({'error': 'URL harus diawali dengan http:// atau https://'}), 400
+        
+    # Strictly enforce SoundCloud domain (prevents SSRF and third-party abuse)
+    try:
+        parsed_url = urlparse(url)
+        hostname = (parsed_url.hostname or '').lower()
+        if not (hostname == 'soundcloud.com' or hostname.endswith('.soundcloud.com')):
+            return jsonify({'error': 'Hanya link resmi SoundCloud (soundcloud.com atau on.soundcloud.com) yang didukung'}), 400
+    except Exception:
+        return jsonify({'error': 'Format URL tidak valid'}), 400
         
     # Resolve shortlink if on.soundcloud.com
     if 'on.soundcloud.com' in url:
         try:
-            import requests as req
             resolved = req.get(url, allow_redirects=True, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
             if resolved.url and 'soundcloud.com' in resolved.url:
                 url = resolved.url
@@ -524,7 +624,7 @@ def download():
                 '--add-header', f'Authorization: OAuth {clean_token}',
             ])
 
-        cmd.append(url)
+        cmd.extend(['--', url])
 
             
         # Run the command with timeout

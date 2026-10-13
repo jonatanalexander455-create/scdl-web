@@ -17,14 +17,30 @@ __pycache__/
 .idea
 .python-version
 .DS_Store
+
+# Databases
+*.db
+web/*.db
+*.sqlite3
+
+# Logs & temp files
+*.log
+web/*.log
+*.txt
+!web/requirements.txt
+!README.md
+*.zip
+web/*.zip
+debug.txt
+web/debug.txt
+
+# Cookies & credentials
+cookies.txt
+web/cookies.txt
+
+# Virtualenvs & downloads
 web/venv*
 web/downloads/*
 !web/downloads/.gitkeep
-web/*.log
-web/*.txt
-!web/requirements.txt
-!web/cookies.txt
-!cookies.txt
-web/*.zip
 
 

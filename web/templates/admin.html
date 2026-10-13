@@ -5,11 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel — SCDL Web</title>
+    <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
     <link rel="shortcut icon" href="{{ url_for('static', filename='soundcloud-logo.png') }}?v=2">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v=7">
+    <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}?v=8">
 </head>
 
 <body>
@@ -217,12 +218,14 @@
                         </form>
                         
                         <button type="button" class="act-btn act-btn-reset" title="Ubah password member"
-                            onclick="openResetModal('{{ user.id }}', '{{ user.username }}')">
+                            data-userid="{{ user.id }}" data-username="{{ user.username }}"
+                            onclick="openResetModal(this.dataset.userid, this.dataset.username)">
                             <span>🔑 Reset Pwd</span>
                         </button>
 
                         <form method="POST" action="/kelola-scdl/delete" style="display:inline;"
-                            onsubmit="return confirmDelete('{{ user.username }}')">
+                            data-username="{{ user.username }}"
+                            onsubmit="return confirmDelete(this.dataset.username)">
                             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="user_id" value="{{ user.id }}">
                             <button type="submit" class="act-btn act-btn-delete" title="Hapus member ini">
@@ -300,6 +303,29 @@
                     <textarea name="cookies_content" rows="3" placeholder="Paste teks cookies.txt di sini..." class="cookies-field">{{ cookies_content }}</textarea>
                     <button type="submit" class="btn-save-setting">
                         💾 Simpan Cookies
+                    </button>
+                </form>
+            </section>
+
+            <!-- Admin Security & Password Change Card -->
+            <section class="admin-card settings-card">
+                <div class="card-head">
+                    <div class="card-head-title">
+                        <span class="card-icon">🛡️</span>
+                        <div>
+                            <h2>Keamanan Akun Admin</h2>
+                            <p class="card-subtitle">Ganti password akun admin Anda.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form method="POST" action="/kelola-scdl/change-password" autocomplete="off" style="display:flex; flex-direction:column; gap:8px;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <input type="password" name="old_password" required placeholder="Password Admin Saat Ini" class="token-field" style="padding:10px 14px;">
+                    <input type="password" name="new_password" required minlength="6" placeholder="Password Baru (min 6 karakter)" class="token-field" style="padding:10px 14px;">
+                    <input type="password" name="confirm_password" required minlength="6" placeholder="Ulangi Password Baru" class="token-field" style="padding:10px 14px;">
+                    <button type="submit" class="btn-save-setting" style="margin-top:4px;">
+                        🔐 Perbarui Password Admin
                     </button>
                 </form>
             </section>
