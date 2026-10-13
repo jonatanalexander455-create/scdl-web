@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (response.headers.get('Content-Type') === 'application/zip') {
                 filename += '.zip';
             } else {
-                filename += '.mp3';
+                filename += '.' + (format || 'mp3');
             }
 
             const downloadUrl = window.URL.createObjectURL(blob);

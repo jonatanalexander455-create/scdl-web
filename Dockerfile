@@ -20,4 +20,4 @@ RUN mkdir -p /app/downloads
 ENV PORT=10000
 EXPOSE 10000
 
-CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT:-10000} app:app --workers 2 --timeout 180"]
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT:-10000} app:app --workers 1 --threads 4 --timeout 180"]

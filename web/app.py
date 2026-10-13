@@ -513,8 +513,8 @@ def download():
             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
         ]
         
-        # Only embed thumbnail for containers that support it (mp3, flac, m4a, opus, ogg)
-        if audio_format in ('mp3', 'flac', 'm4a', 'opus', 'ogg'):
+        # Only embed thumbnail for containers that support it natively (mp3, flac, m4a)
+        if audio_format in ('mp3', 'flac', 'm4a'):
             cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
         
         if clean_token:
@@ -644,7 +644,7 @@ def download():
                         '--embed-metadata',
                         '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
                     ]
-                    if audio_format in ('mp3', 'flac', 'm4a', 'opus', 'ogg'):
+                    if audio_format in ('mp3', 'flac', 'm4a'):
                         yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
                     if cookies_file:
                         yt_cmd.extend(['--cookies', cookies_file])
@@ -717,23 +717,26 @@ def download():
             shutil.rmtree(job_dir, ignore_errors=True)
             return jsonify({'error': 'Tidak ada file yang terdownload. URL mungkin tidak valid.'}), 404
             
-        # Helper to find all files
-        def get_all_files(directory):
-            file_paths = []
-            for root, directories, files in os.walk(directory):
-                for filename in files:
-                    filepath = os.path.join(root, filename)
-                    file_paths.append(filepath)
-            return file_paths
-            
-        all_files = get_all_files(job_dir)
+        # Helper to find audio files specifically
+        valid_audio_exts = ('.mp3', '.flac', '.wav', '.aac', '.ogg', '.opus', '.m4a')
+        audio_files = []
+        all_other_files = []
+        for root, _, files in os.walk(job_dir):
+            for filename in files:
+                fpath = os.path.join(root, filename)
+                if any(filename.lower().endswith(ext) for ext in valid_audio_exts) and not filename.endswith('.part') and not filename.endswith('.ytdl'):
+                    audio_files.append(fpath)
+                else:
+                    all_other_files.append(fpath)
+                    
+        files_to_check = audio_files if audio_files else all_other_files
         
-        if not all_files:
+        if not files_to_check:
             shutil.rmtree(job_dir, ignore_errors=True)
             return jsonify({'error': 'Gagal menemukan file yang terdownload.'}), 500
             
-        if len(all_files) == 1:
-            file_to_send = all_files[0]
+        if len(audio_files) == 1:
+            file_to_send = audio_files[0]
             filename = os.path.basename(file_to_send)
             
             @after_this_request
@@ -745,7 +748,7 @@ def download():
                 return response
                 
             return send_file(file_to_send, as_attachment=True, download_name=filename)
-        else:
+        elif len(audio_files) > 1:
             zip_filename = f"{job_id}.zip"
             zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
             shutil.make_archive(zip_path[:-4], 'zip', job_dir)
@@ -761,6 +764,19 @@ def download():
                 return response
                 
             return send_file(zip_path, as_attachment=True, download_name="soundcloud_playlist.zip")
+        else:
+            file_to_send = files_to_check[0]
+            filename = os.path.basename(file_to_send)
+            
+            @after_this_request
+            def remove_file(response):
+                try:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                except Exception as e:
+                    app.logger.error(f"Error removing file: {e}")
+                return response
+                
+            return send_file(file_to_send, as_attachment=True, download_name=filename)
 
     except subprocess.TimeoutExpired:
         shutil.rmtree(job_dir, ignore_errors=True)
