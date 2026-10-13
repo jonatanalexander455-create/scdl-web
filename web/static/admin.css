@@ -1211,8 +1211,33 @@ body {
     transform: translateY(0);
 }
 
-/* Responsiveness */
-@media (max-width: 768px) {
+/* Ensure mobile inputs never trigger iOS zoom lag */
+input[type="text"], input[type="password"], input[type="number"], textarea {
+    font-size: 16px !important;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+/* Responsiveness & Mobile Performance */
+@media (max-width: 768px), (pointer: coarse) {
+    .admin-bg, .admin-blob {
+        display: none !important;
+    }
+
+    body {
+        background-color: var(--bg-dark);
+        background-image: 
+            radial-gradient(circle at 10% 10%, rgba(139, 92, 246, 0.16) 0%, transparent 45%),
+            radial-gradient(circle at 90% 90%, rgba(99, 102, 241, 0.12) 0%, transparent 45%);
+        background-attachment: fixed;
+    }
+
+    .admin-card {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(18, 20, 30, 0.95) !important;
+    }
+
     .admin-container {
         padding: 18px 14px 40px;
     }
