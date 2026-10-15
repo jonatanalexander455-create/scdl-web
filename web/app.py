@@ -557,10 +557,14 @@ def index():
     user_id = session.get('user_id')
     saved_token = ''
     days_left = None
+    expires_date = None
     try:
         _, _, user_info = get_user_status(user_id)
         if user_info and not user_info.get('is_admin'):
             days_left = user_info.get('days_left')
+            exp_val = user_info.get('expires_at')
+            if exp_val:
+                expires_date = str(exp_val)[:10]
         from db import get_db
         conn = get_db()
         user = conn.execute('SELECT oauth_token FROM users WHERE id = ?', (user_id,)).fetchone()
@@ -569,7 +573,7 @@ def index():
             saved_token = user['oauth_token']
     except Exception as e:
         app.logger.error(f"Error loading index data: {e}")
-    return render_template('index.html', saved_token=saved_token, days_left=days_left)
+    return render_template('index.html', saved_token=saved_token, days_left=days_left, expires_date=expires_date)
 
 
 @app.route('/api/save_token', methods=['POST'])
