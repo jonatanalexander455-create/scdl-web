@@ -9,6 +9,7 @@ import uuid
 import time
 import secrets
 import re
+import threading
 import requests as req
 from db import (
     init_db, check_user, get_all_users, add_user, delete_user,
@@ -548,6 +549,31 @@ def telegram_webhook():
     except Exception as e:
         app.logger.error(f"[Telegram Webhook] Error handling update: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 200
+
+# ===================== HEALTH CHECK & KEEP-ALIVE =====================
+
+@app.route('/health')
+def health_check():
+    """Ultra-fast, zero-overhead health check endpoint for keep-alive monitoring."""
+    return jsonify({
+        'status': 'ok',
+        'service': 'scdl-web',
+        'timestamp': int(time.time())
+    }), 200
+
+def _keep_alive_worker():
+    """Background thread that pings public domain every 8 minutes to prevent Render idle sleep."""
+    time.sleep(30)
+    target_url = "https://soundcloud.my.id/health"
+    while True:
+        try:
+            req.get(target_url, timeout=10, headers={'User-Agent': 'SCDL-KeepAlive/1.0'})
+        except Exception:
+            pass
+        time.sleep(480)
+
+# Start background pinger
+threading.Thread(target=_keep_alive_worker, daemon=True).start()
 
 # ===================== MAIN ROUTES =====================
 
