@@ -811,11 +811,15 @@ def download():
         cmd = [
             YT_DLP,
             '-x', '--audio-format', ytdl_format,
+            '--socket-timeout', '15',
+            '--retries', '3',
+            '--fragment-retries', '3',
+            '--concurrent-fragments', '5',
         ]
         if audio_quality:
             cmd.extend(['--audio-quality', audio_quality])
         cmd.extend([
-            '--max-downloads', '25',
+            '--max-downloads', '15',
             '--embed-metadata',
             '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
         ])
@@ -834,8 +838,8 @@ def download():
         cmd.extend(['--', url])
 
             
-        # Run the command with timeout
-        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
+        # Run the command with timeout (240s for long mixes or playlists)
+        process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
         
         if process.returncode != 0:
             err_output = process.stderr or process.stdout or ''
@@ -945,6 +949,10 @@ def download():
                         '--max-downloads', '1',
                         '--ignore-errors',
                         '--no-abort-on-error',
+                        '--socket-timeout', '15',
+                        '--retries', '3',
+                        '--fragment-retries', '3',
+                        '--concurrent-fragments', '5',
                         '--extractor-args', 'youtube:player_client=android',
                         '-f', '18/bestaudio/best',
                         '-x', '--audio-format', ytdl_format,
@@ -1110,8 +1118,9 @@ def download():
             return send_file(file_to_send, as_attachment=True, download_name=filename)
 
     except subprocess.TimeoutExpired:
+        app.logger.warning(f"[TIMEOUT] Download timed out for user {session.get('username')}: {url}")
         shutil.rmtree(job_dir, ignore_errors=True)
-        return jsonify({'error': 'Download timeout setelah 2 menit. Coba lagi.'}), 500
+        return jsonify({'error': 'Download timeout (proses terlalu lama). Jika ini playlist atau mix panjang (di atas 30 menit), coba pilih format MP3 128kbps atau download per lagu.'}), 500
     except Exception as e:
         import traceback
         traceback.print_exc()
