@@ -60,8 +60,9 @@ def check_soundcloud_token_status(token):
             d = r.json()
             plan = d.get('plan')
             username = d.get('username', 'User')
-            if plan and ('go' in str(plan).lower() or 'plus' in str(plan).lower() or 'high' in str(plan).lower()):
-                return {'status': 'go_plus', 'label': f'SoundCloud Go+ Aktif ({username}) ⭐', 'plan': plan, 'username': username}
+            sub_id = (d.get('consumer_subscription') or {}).get('product', {}).get('id', '')
+            if (plan and ('go' in str(plan).lower() or 'plus' in str(plan).lower() or 'high' in str(plan).lower())) or ('high-tier' in str(sub_id).lower() or 'go' in str(sub_id).lower()):
+                return {'status': 'go_plus', 'label': f'SoundCloud Go+ Aktif ({username}) ⭐', 'plan': sub_id or plan or 'SoundCloud Go+', 'username': username}
             else:
                 return {'status': 'free', 'label': f'Akun Standar Free ({username}) — Go+ DRM di-mirror via Smart Mirror 🔀', 'plan': plan or 'Free', 'username': username}
         else:
