@@ -917,8 +917,15 @@ def download():
         # Run the command with timeout (240s for long mixes or playlists)
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
         
-        # If token caused failure on free/public track, retry once without token
-        if process.returncode != 0 and clean_token:
+        # Check if direct SoundCloud download hit DRM protection
+        is_drm = False
+        if process.returncode != 0:
+            err_output = process.stderr or process.stdout or ''
+            if 'DRM' in err_output or 'preview' in err_output:
+                is_drm = True
+
+        # If token caused failure on free/public track, retry once without token ONLY if not DRM
+        if process.returncode != 0 and clean_token and not is_drm:
             cmd_no_tok = [
                 *YT_DLP_CMD,
                 '-x', '--audio-format', ytdl_format,
@@ -943,7 +950,7 @@ def download():
 
         if process.returncode != 0:
             err_output = process.stderr or process.stdout or ''
-            app.logger.info(f"Direct SoundCloud download returned non-zero, activating Smart Hybrid Mirror. Stderr: {err_output[:200]}")
+            app.logger.info(f"Direct SoundCloud returned non-zero (is_drm={is_drm}), activating Smart Hybrid Mirror (YouTube). Stderr: {err_output[:200]}")
             
             fallback_success = False
             meta = None
@@ -1188,15 +1195,11 @@ def download():
             except Exception:
                 pass
 
-            @after_this_request
-            def remove_file(response):
-                try:
-                    shutil.rmtree(job_dir, ignore_errors=True)
-                except Exception as e:
-                    app.logger.error(f"Error removing file: {e}")
-                return response
-                
-            return send_file(file_to_send, as_attachment=True, download_name=filename)
+            resp = send_file(file_to_send, as_attachment=True, download_name=filename)
+            if hasattr(resp, 'call_on_close'):
+                resp.call_on_close(lambda: shutil.rmtree(job_dir, ignore_errors=True))
+            return resp
+
         elif len(audio_files) > 1:
             zip_filename = f"{job_id}.zip"
             zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
@@ -1208,17 +1211,18 @@ def download():
             except Exception:
                 pass
 
-            @after_this_request
-            def remove_files(response):
-                try:
+            resp = send_file(zip_path, as_attachment=True, download_name="soundcloud_playlist.zip")
+            if hasattr(resp, 'call_on_close'):
+                def cleanup_zip():
                     shutil.rmtree(job_dir, ignore_errors=True)
                     if os.path.exists(zip_path):
-                        os.remove(zip_path)
-                except Exception as e:
-                    app.logger.error(f"Error removing files: {e}")
-                return response
-                
-            return send_file(zip_path, as_attachment=True, download_name="soundcloud_playlist.zip")
+                        try:
+                            os.remove(zip_path)
+                        except Exception:
+                            pass
+                resp.call_on_close(cleanup_zip)
+            return resp
+
         else:
             file_to_send = files_to_check[0]
             filename = os.path.basename(file_to_send)
@@ -1230,15 +1234,10 @@ def download():
             except Exception:
                 pass
 
-            @after_this_request
-            def remove_file(response):
-                try:
-                    shutil.rmtree(job_dir, ignore_errors=True)
-                except Exception as e:
-                    app.logger.error(f"Error removing file: {e}")
-                return response
-                
-            return send_file(file_to_send, as_attachment=True, download_name=filename)
+            resp = send_file(file_to_send, as_attachment=True, download_name=filename)
+            if hasattr(resp, 'call_on_close'):
+                resp.call_on_close(lambda: shutil.rmtree(job_dir, ignore_errors=True))
+            return resp
 
     except subprocess.TimeoutExpired:
         app.logger.warning(f"[TIMEOUT] Download timed out for user {session.get('username')}: {url}")
