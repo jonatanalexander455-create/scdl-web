@@ -1136,7 +1136,7 @@ def download():
                     if duration_sec > 10:
                         yt_cmd.insert(-1, '--match-filter')
                         yt_cmd.insert(-1, f"duration >= {max(1, duration_sec - 15)} & duration <= {duration_sec + 15}")
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
                     if find_valid_audio(job_dir):
                         break
 
@@ -1144,13 +1144,13 @@ def download():
                 if not find_valid_audio(job_dir) and direct_vids:
                     vid_url = f"https://www.youtube.com/watch?v={direct_vids[0]}"
                     yt_cmd = build_yt_cmd(vid_url)
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
 
                 # Secondary fallback: only if direct scraping failed
                 if not find_valid_audio(job_dir):
                     search_query = f"ytsearch2:{clean_search}"
                     yt_cmd = build_yt_cmd(search_query)
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90)
                 
                 valid_files = find_valid_audio(job_dir)
                 if valid_files:
