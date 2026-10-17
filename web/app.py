@@ -887,9 +887,9 @@ def download():
         cmd = [
             *YT_DLP_CMD,
             '-x', '--audio-format', ytdl_format,
-            '--socket-timeout', '15',
-            '--retries', '3',
-            '--fragment-retries', '3',
+            '--socket-timeout', '10',
+            '--retries', '1',
+            '--fragment-retries', '1',
             '--concurrent-fragments', '5',
         ]
         if audio_quality:
@@ -1062,55 +1062,69 @@ def download():
                             pass
 
                 fallback_proc = None
-                client_strategies = [
-                    'android_sdkless,web_safari',
-                    'mweb,web',
-                    'ios,web'
-                ]
 
+                # Primary search (Ultra-fast ~8s): android_sdkless,web_safari without cookies
                 for query, mf in search_attempts:
-                    for player_clients in client_strategies:
-                        yt_cmd = [
-                            *YT_DLP_CMD,
-                            '--no-playlist',
-                            '--max-downloads', '1',
-                            '--ignore-errors',
-                            '--no-abort-on-error',
-                            '--socket-timeout', '15',
-                            '--retries', '3',
-                            '--fragment-retries', '3',
-                            '--concurrent-fragments', '5',
-                            '--extractor-args', f'youtube:player_client={player_clients}',
-                            '-f', '18/bestaudio/best',
-                            '-x', '--audio-format', ytdl_format,
-                            '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                        ]
-                        if audio_quality:
-                            yt_cmd.extend(['--audio-quality', audio_quality])
-                        yt_cmd.extend([
-                            '--embed-metadata',
-                            '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                        ])
-                        if audio_format in ('mp3', 'flac', 'm4a'):
-                            yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
-                        if cookies_file:
-                            yt_cmd.extend(['--cookies', cookies_file])
-                        if mf:
-                            yt_cmd.extend(['--match-filter', mf])
-                        yt_cmd.append(query)
-                        
-                        fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
-                        if find_valid_audio(job_dir):
-                            break
-
-                        # If cookies failed or got blocked, retry without cookies
-                        if cookies_file and not find_valid_audio(job_dir):
-                            yt_cmd_no_cookies = [arg for arg in yt_cmd if arg != '--cookies' and arg != cookies_file]
-                            fallback_proc = subprocess.run(yt_cmd_no_cookies, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
-                            if find_valid_audio(job_dir):
-                                break
+                    yt_cmd = [
+                        *YT_DLP_CMD,
+                        '--no-playlist',
+                        '--max-downloads', '1',
+                        '--ignore-errors',
+                        '--no-abort-on-error',
+                        '--socket-timeout', '10',
+                        '--retries', '1',
+                        '--fragment-retries', '1',
+                        '--concurrent-fragments', '5',
+                        '--extractor-args', 'youtube:player_client=android_sdkless,web_safari',
+                        '-f', '18/bestaudio/best',
+                        '-x', '--audio-format', ytdl_format,
+                        '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    ]
+                    if audio_quality:
+                        yt_cmd.extend(['--audio-quality', audio_quality])
+                    yt_cmd.extend([
+                        '--embed-metadata',
+                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                    ])
+                    if audio_format in ('mp3', 'flac', 'm4a'):
+                        yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
+                    if mf:
+                        yt_cmd.extend(['--match-filter', mf])
+                    yt_cmd.append(query)
+                    
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
                     if find_valid_audio(job_dir):
                         break
+
+                # Secondary fallback: only if primary fast search didn't get audio
+                if not find_valid_audio(job_dir):
+                    sec_cmd = [
+                        *YT_DLP_CMD,
+                        '--no-playlist',
+                        '--max-downloads', '1',
+                        '--ignore-errors',
+                        '--no-abort-on-error',
+                        '--socket-timeout', '10',
+                        '--retries', '1',
+                        '--fragment-retries', '1',
+                        '--concurrent-fragments', '5',
+                        '--extractor-args', 'youtube:player_client=mweb,web',
+                        '-f', '18/bestaudio/best',
+                        '-x', '--audio-format', ytdl_format,
+                        '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    ]
+                    if audio_quality:
+                        sec_cmd.extend(['--audio-quality', audio_quality])
+                    sec_cmd.extend([
+                        '--embed-metadata',
+                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                    ])
+                    if audio_format in ('mp3', 'flac', 'm4a'):
+                        sec_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
+                    if cookies_file:
+                        sec_cmd.extend(['--cookies', cookies_file])
+                    sec_cmd.append(f"ytsearch2:{clean_search}")
+                    fallback_proc = subprocess.run(sec_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
                 
                 valid_files = find_valid_audio(job_dir)
                 if valid_files:
