@@ -1072,26 +1072,25 @@ def download():
                 os.makedirs(job_dir, exist_ok=True)
 
                 cookies_file = None
-                for cand_path in [
-                    os.path.join(os.path.dirname(__file__), 'cookies.txt'),
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cookies.txt'),
-                    '/app/cookies.txt'
-                ]:
-                    if os.path.exists(cand_path) and os.path.getsize(cand_path) > 10:
+                db_cookies = get_setting('youtube_cookies', '')
+                if db_cookies and len(db_cookies) > 10:
+                    cand_path = os.path.join(job_dir, 'cookies.txt')
+                    try:
+                        with open(cand_path, 'w', encoding='utf-8') as f:
+                            f.write(db_cookies)
                         cookies_file = cand_path
-                        break
-                
-                # Check DB for cookies if not found on ephemeral disk
+                    except Exception as e:
+                        app.logger.warning(f"Error writing cookies from DB: {e}")
+
                 if not cookies_file:
-                    db_cookies = get_setting('youtube_cookies', '')
-                    if db_cookies and len(db_cookies) > 10:
-                        cand_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-                        try:
-                            with open(cand_path, 'w', encoding='utf-8') as f:
-                                f.write(db_cookies)
+                    for cand_path in [
+                        os.path.join(os.path.dirname(__file__), 'cookies.txt'),
+                        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cookies.txt'),
+                        '/app/cookies.txt'
+                    ]:
+                        if os.path.exists(cand_path) and os.path.getsize(cand_path) > 10:
                             cookies_file = cand_path
-                        except Exception:
-                            pass
+                            break
 
                 fallback_proc = None
 
