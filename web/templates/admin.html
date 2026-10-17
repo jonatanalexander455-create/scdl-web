@@ -320,7 +320,15 @@
                             <p class="card-subtitle">Otomatis disematkan ke semua unduhan member.</p>
                         </div>
                     </div>
-                    {% if system_token %}
+                    {% if system_token and token_status %}
+                        {% if token_status.status == 'go_plus' %}
+                        <span class="tag-status tag-status-active">● Go+ Aktif ⭐</span>
+                        {% elif token_status.status == 'free' %}
+                        <span class="tag-status" style="background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde047;">● Akun Standar (Free)</span>
+                        {% else %}
+                        <span class="tag-status tag-status-expired">● Invalid / Expired</span>
+                        {% endif %}
+                    {% elif system_token %}
                     <span class="tag-status tag-status-active">● Aktif</span>
                     {% else %}
                     <span class="tag-status tag-status-expired">○ Kosong</span>
@@ -329,11 +337,16 @@
 
                 <form method="POST" action="/kelola-scdl/token" autocomplete="off">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <div class="token-input-wrap">
+                    <div class="token-input-wrap" style="margin-bottom: 6px;">
                         <input type="password" id="masterTokenInput" name="system_token" value="{{ system_token or '' }}"
                             placeholder="Paste OAuth Token SoundCloud Go+ di sini..." class="token-field">
                         <button type="button" class="toggle-view-btn" onclick="toggleTokenVisibility()" title="Tampilkan/Sembunyikan Token">👁️</button>
                     </div>
+                    {% if token_status and token_status.label %}
+                    <div style="font-size: 0.73rem; margin-bottom: 8px; line-height: 1.4; color: {% if token_status.status == 'go_plus' %}#4ade80{% elif token_status.status == 'free' %}#facc15{% else %}#f87171{% endif %};">
+                        {{ token_status.label }}
+                    </div>
+                    {% endif %}
                     <button type="submit" class="btn-save-setting">
                         💾 Simpan Master Token
                     </button>

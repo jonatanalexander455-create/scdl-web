@@ -555,6 +555,27 @@ def cmd_hapus(token, chat_id, args):
     return {'status': 'ok'}
 
 
+def check_soundcloud_token_status(token_str):
+    """Check if token is valid and whether it is a Go+ or Free account."""
+    if not token_str:
+        return {'status': 'empty', 'label': '🔴 Belum Disetel'}
+    try:
+        clean = token_str.replace('OAuth ', '').replace('oauth ', '').strip()
+        r = requests.get('https://api-v2.soundcloud.com/me', headers={'Authorization': f'OAuth {clean}', 'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if r.status_code == 200:
+            d = r.json()
+            plan = d.get('plan')
+            username = d.get('username', 'User')
+            if plan and ('go' in str(plan).lower() or 'plus' in str(plan).lower() or 'high' in str(plan).lower()):
+                return {'status': 'go_plus', 'label': f'🟢 SoundCloud Go+ Aktif ({username}) ⭐', 'plan': plan, 'username': username}
+            else:
+                return {'status': 'free', 'label': f'🟡 Akun Free/Standar ({username}) — DRM di-mirror ke YouTube 🔀', 'plan': plan or 'Free', 'username': username}
+        else:
+            return {'status': 'invalid', 'label': '⚠️ Token Invalid / Expired'}
+    except Exception:
+        return {'status': 'unknown', 'label': '🟢 Tersimpan (Status Offline)'}
+
+
 def cmd_status(token, chat_id):
     """Show detailed server health, storage, and token status."""
     users = get_all_users()
@@ -563,7 +584,8 @@ def cmd_status(token, chat_id):
 
     # Token status
     sys_token = get_setting('soundcloud_oauth_token', '')
-    token_status = "🟢 Terhubung (Go+ Aktif)" if sys_token else "🔴 Belum Disetel"
+    token_info = check_soundcloud_token_status(sys_token)
+    token_status = token_info['label']
 
     # Disk usage for temp downloads
     temp_dir = os.environ.get('TEMP_DIR', '/tmp/scdl')
@@ -627,9 +649,10 @@ def cmd_token(token, chat_id, new_token=None):
     if new_token:
         clean_token = new_token.strip()
         set_setting('soundcloud_oauth_token', clean_token)
+        st = check_soundcloud_token_status(clean_token)
         send_telegram_message(
             token, chat_id,
-            f"✅ <b>Master Go+ Token Berhasil Diperbarui!</b>\nToken baru: <code>{clean_token}</code>",
+            f"✅ <b>Master Token Berhasil Diperbarui!</b>\n\nStatus: {st['label']}\nToken: <code>{clean_token}</code>",
             reply_markup=build_menu_keyboard()
         )
         return {'status': 'ok'}
@@ -638,16 +661,17 @@ def cmd_token(token, chat_id, new_token=None):
     cur_token = get_setting('soundcloud_oauth_token', '')
     if not cur_token:
         msg = (
-            "🔑 <b>MASTER GO+ TOKEN:</b>\n\n"
+            "🔑 <b>MASTER TOKEN SOUNDCLOUD:</b>\n\n"
             "🔴 <i>Belum disetel di sistem.</i>\n\n"
             "Untuk mengatur token baru, ketik:\n"
             "<code>/token [token_oauth_kamu]</code>"
         )
     else:
+        st = check_soundcloud_token_status(cur_token)
         masked = cur_token[:6] + "..." + cur_token[-4:] if len(cur_token) > 10 else cur_token
         msg = (
-            f"🔑 <b>MASTER GO+ TOKEN:</b>\n\n"
-            f"Status: 🟢 Aktif\n"
+            f"🔑 <b>MASTER TOKEN SOUNDCLOUD:</b>\n\n"
+            f"Status: {st['label']}\n"
             f"Token: <code>{masked}</code>\n\n"
             f"💡 <i>Untuk mengganti token, ketik:</i>\n"
             f"<code>/token [token_oauth_baru]</code>"

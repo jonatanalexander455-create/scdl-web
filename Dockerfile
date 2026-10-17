@@ -1,8 +1,9 @@
 FROM python:3.11-slim
 
-# Install system dependencies (ffmpeg is required for audio conversions)
+# Install system dependencies (ffmpeg is required for audio conversions, nodejs for yt-dlp JS challenges)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

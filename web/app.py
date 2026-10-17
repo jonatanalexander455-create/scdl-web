@@ -45,6 +45,29 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 # Ensure downloads directory exists
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
+# Guaranteed yt-dlp command using current python runtime
+YT_DLP_CMD = [sys.executable, '-m', 'yt_dlp']
+
+def check_soundcloud_token_status(token):
+    """Check whether SoundCloud token is active and whether it has Go+ subscription."""
+    if not token:
+        return {'status': 'empty', 'label': 'Belum disetel (Direct lagu Free saja)', 'plan': None, 'username': None}
+    try:
+        clean_tok = token.replace('OAuth ', '').replace('oauth ', '').strip()
+        r = req.get('https://api-v2.soundcloud.com/me', headers={'Authorization': f'OAuth {clean_tok}', 'User-Agent': 'Mozilla/5.0'}, timeout=5)
+        if r.status_code == 200:
+            d = r.json()
+            plan = d.get('plan')
+            username = d.get('username', 'User')
+            if plan and ('go' in str(plan).lower() or 'plus' in str(plan).lower() or 'high' in str(plan).lower()):
+                return {'status': 'go_plus', 'label': f'SoundCloud Go+ Aktif ({username}) ⭐', 'plan': plan, 'username': username}
+            else:
+                return {'status': 'free', 'label': f'Akun Standar Free ({username}) — Go+ DRM di-mirror via Smart Mirror 🔀', 'plan': plan or 'Free', 'username': username}
+        else:
+            return {'status': 'invalid', 'label': 'Token Tidak Valid / Kedaluwarsa ⚠️', 'plan': None, 'username': None}
+    except Exception:
+        return {'status': 'unknown', 'label': 'Token Tersimpan (Cek status offline)', 'plan': None, 'username': None}
+
 # Concurrency & Spam Prevention
 active_downloads = set()       # Set of active user_ids downloading
 last_download_time = {}       # { user_id: timestamp }
@@ -326,15 +349,31 @@ def get_disk_info():
 def get_admin_context():
     """Helper to supply full template context for admin views."""
     cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-    has_cookies = os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 10
     cookies_content = ''
-    if has_cookies:
+    has_cookies = False
+    
+    # Check disk first
+    if os.path.exists(cookies_path) and os.path.getsize(cookies_path) > 10:
+        has_cookies = True
         try:
             with open(cookies_path, 'r', encoding='utf-8') as f:
                 cookies_content = f.read()
         except Exception:
             pass
+    else:
+        # Check database (persistent across Render redeploys)
+        db_cookies = get_setting('youtube_cookies', '')
+        if db_cookies and len(db_cookies) > 10:
+            has_cookies = True
+            cookies_content = db_cookies
+            try:
+                with open(cookies_path, 'w', encoding='utf-8') as f:
+                    f.write(db_cookies)
+            except Exception:
+                pass
+
     system_token = get_setting('soundcloud_oauth_token', '') or ''
+    token_status = check_soundcloud_token_status(system_token)
     telegram_config = get_telegram_config()
     return {
         'users': get_all_users(),
@@ -342,6 +381,7 @@ def get_admin_context():
         'has_cookies': has_cookies,
         'cookies_content': cookies_content,
         'system_token': system_token,
+        'token_status': token_status,
         'recent_downloads': get_recent_downloads(15),
         'telegram_config': telegram_config
     }
@@ -361,7 +401,16 @@ def admin_save_token():
     if token_val.lower().startswith('oauth '):
         token_val = token_val[6:].strip()
     set_setting('soundcloud_oauth_token', token_val)
-    msg = '✅ Master SoundCloud Go+ Token berhasil disimpan!' if token_val else '✅ Master Token dikosongkan.'
+    if token_val:
+        st = check_soundcloud_token_status(token_val)
+        if st['status'] == 'go_plus':
+            msg = f"✅ Master SoundCloud Go+ Token tersimpan! Status: {st['label']}"
+        elif st['status'] == 'free':
+            msg = f"ℹ️ Token tersimpan! Status: {st['label']}. (Lagu Go+ DRM di-handle otomatis via Smart Mirror)."
+        else:
+            msg = f"⚠️ Token tersimpan, namun SoundCloud merespons: {st['label']}."
+    else:
+        msg = '✅ Master Token dikosongkan.'
     return render_template('admin.html', **get_admin_context(), message=msg)
 
 @app.route('/kelola-scdl/change-password', methods=['POST'])
@@ -464,10 +513,12 @@ def admin_save_cookies():
     content = request.form.get('cookies_content', '').strip()
     cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
     if content:
+        set_setting('youtube_cookies', content)
         with open(cookies_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        return render_template('admin.html', **get_admin_context(), message='✅ Cookies YouTube berhasil disimpan! Semua lagu DRM sekarang bebas bot-check.')
+        return render_template('admin.html', **get_admin_context(), message='✅ Cookies YouTube berhasil disimpan di Database & Server! Semua lagu DRM sekarang bebas bot-check.')
     else:
+        set_setting('youtube_cookies', '')
         if os.path.exists(cookies_path):
             os.remove(cookies_path)
         return render_template('admin.html', **get_admin_context(), message='✅ Cookies YouTube telah dikosongkan.')
@@ -832,10 +883,8 @@ def download():
     os.makedirs(job_dir, exist_ok=True)
     
     try:
-        # Dynamically locate yt-dlp executable
-        YT_DLP = shutil.which('yt-dlp') or '/Users/johoktan11/Library/Python/3.9/bin/yt-dlp' or 'yt-dlp'
         cmd = [
-            YT_DLP,
+            *YT_DLP_CMD,
             '-x', '--audio-format', ytdl_format,
             '--socket-timeout', '15',
             '--retries', '3',
@@ -867,6 +916,30 @@ def download():
         # Run the command with timeout (240s for long mixes or playlists)
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
         
+        # If token caused failure on free/public track, retry once without token
+        if process.returncode != 0 and clean_token:
+            cmd_no_tok = [
+                *YT_DLP_CMD,
+                '-x', '--audio-format', ytdl_format,
+                '--socket-timeout', '15',
+                '--retries', '3',
+                '--fragment-retries', '3',
+                '--concurrent-fragments', '5',
+            ]
+            if audio_quality:
+                cmd_no_tok.extend(['--audio-quality', audio_quality])
+            cmd_no_tok.extend([
+                '--max-downloads', '15',
+                '--embed-metadata',
+                '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+            ])
+            if audio_format in ('mp3', 'flac', 'm4a'):
+                cmd_no_tok.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
+            cmd_no_tok.extend(['--', url])
+            proc_no_tok = subprocess.run(cmd_no_tok, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
+            if proc_no_tok.returncode == 0:
+                process = proc_no_tok
+
         if process.returncode != 0:
             err_output = process.stderr or process.stdout or ''
             app.logger.info(f"Direct SoundCloud download returned non-zero, activating Smart Hybrid Mirror. Stderr: {err_output[:200]}")
@@ -912,7 +985,7 @@ def download():
                         slug = url.rstrip('/').split('/')[-1].replace('-', ' ').strip()
                         uploader = url.rstrip('/').split('/')[-2] if len(url.rstrip('/').split('/')) >= 2 else ''
                         search_query = f"{uploader} {slug}".strip()
-                        sr = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={search_query}&client_id=iZIs9mchVcX5lhVRKiQWVU8hlbxSPerform', headers=headers, timeout=10)
+                        sr = req.get(f'https://api-v2.soundcloud.com/search/tracks?q={search_query}', headers=headers, timeout=10)
                         if sr.status_code == 200:
                             items = sr.json().get('collection', [])
                             if items:
@@ -957,6 +1030,7 @@ def download():
                 if duration_sec > 10:
                     search_attempts.append((f"ytsearch3:{clean_search}", f"duration >= {max(1, duration_sec - 12)} & duration <= {duration_sec + 12}"))
                 search_attempts.append((f"ytsearch3:{clean_search}", None))
+
                 cookies_file = None
                 for cand_path in [
                     os.path.join(os.path.dirname(__file__), 'cookies.txt'),
@@ -966,47 +1040,69 @@ def download():
                     if os.path.exists(cand_path) and os.path.getsize(cand_path) > 10:
                         cookies_file = cand_path
                         break
+                
+                # Check DB for cookies if not found on ephemeral disk
+                if not cookies_file:
+                    db_cookies = get_setting('youtube_cookies', '')
+                    if db_cookies and len(db_cookies) > 10:
+                        cand_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+                        try:
+                            with open(cand_path, 'w', encoding='utf-8') as f:
+                                f.write(db_cookies)
+                            cookies_file = cand_path
+                        except Exception:
+                            pass
 
                 fallback_proc = None
-                for query, mf in search_attempts:
-                    yt_cmd = [
-                        YT_DLP,
-                        '--no-playlist',
-                        '--max-downloads', '1',
-                        '--ignore-errors',
-                        '--no-abort-on-error',
-                        '--socket-timeout', '15',
-                        '--retries', '3',
-                        '--fragment-retries', '3',
-                        '--concurrent-fragments', '5',
-                        '--extractor-args', 'youtube:player_client=android',
-                        '-f', '18/bestaudio/best',
-                        '-x', '--audio-format', ytdl_format,
-                    ]
-                    if audio_quality:
-                        yt_cmd.extend(['--audio-quality', audio_quality])
-                    yt_cmd.extend([
-                        '--embed-metadata',
-                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                    ])
-                    if audio_format in ('mp3', 'flac', 'm4a'):
-                        yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
-                    if cookies_file:
-                        yt_cmd.extend(['--cookies', cookies_file])
-                    if mf:
-                        yt_cmd.extend(['--match-filter', mf])
-                    yt_cmd.append(query)
-                    
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
-                    if find_valid_audio(job_dir):
-                        break
+                client_strategies = [
+                    'android_sdkless,web_safari',
+                    'mweb,web',
+                    'ios,web'
+                ]
 
-                    # If cookies failed or got blocked, retry without cookies
-                    if cookies_file and not find_valid_audio(job_dir):
-                        yt_cmd_no_cookies = [arg for arg in yt_cmd if arg != '--cookies' and arg != cookies_file]
-                        fallback_proc = subprocess.run(yt_cmd_no_cookies, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+                for query, mf in search_attempts:
+                    for player_clients in client_strategies:
+                        yt_cmd = [
+                            *YT_DLP_CMD,
+                            '--no-playlist',
+                            '--max-downloads', '1',
+                            '--ignore-errors',
+                            '--no-abort-on-error',
+                            '--socket-timeout', '15',
+                            '--retries', '3',
+                            '--fragment-retries', '3',
+                            '--concurrent-fragments', '5',
+                            '--extractor-args', f'youtube:player_client={player_clients}',
+                            '-f', '18/bestaudio/best',
+                            '-x', '--audio-format', ytdl_format,
+                            '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                        ]
+                        if audio_quality:
+                            yt_cmd.extend(['--audio-quality', audio_quality])
+                        yt_cmd.extend([
+                            '--embed-metadata',
+                            '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
+                        ])
+                        if audio_format in ('mp3', 'flac', 'm4a'):
+                            yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
+                        if cookies_file:
+                            yt_cmd.extend(['--cookies', cookies_file])
+                        if mf:
+                            yt_cmd.extend(['--match-filter', mf])
+                        yt_cmd.append(query)
+                        
+                        fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
                         if find_valid_audio(job_dir):
                             break
+
+                        # If cookies failed or got blocked, retry without cookies
+                        if cookies_file and not find_valid_audio(job_dir):
+                            yt_cmd_no_cookies = [arg for arg in yt_cmd if arg != '--cookies' and arg != cookies_file]
+                            fallback_proc = subprocess.run(yt_cmd_no_cookies, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+                            if find_valid_audio(job_dir):
+                                break
+                    if find_valid_audio(job_dir):
+                        break
                 
                 valid_files = find_valid_audio(job_dir)
                 if valid_files:
