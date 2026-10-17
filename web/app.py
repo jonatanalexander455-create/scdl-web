@@ -1109,7 +1109,9 @@ def download():
                         '-x', '--audio-format', ytdl_format,
                         '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                     ]
-                    if shutil.which('node'):
+                    if shutil.which('deno'):
+                        c.extend(['--remote-components', 'ejs:github'])
+                    elif shutil.which('node'):
                         c.extend(['--js-runtimes', 'node', '--remote-components', 'ejs:github'])
                     if cookies_file:
                         c.extend(['--cookies', cookies_file])

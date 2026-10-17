@@ -1,9 +1,11 @@
 FROM python:3.11-slim
 
-# Install system dependencies (ffmpeg is required for audio conversions, nodejs for yt-dlp JS challenges)
+# Install Deno from official binary image (required for yt-dlp 2026 YouTube JS challenges)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
+# Install system dependencies (ffmpeg is required for audio conversions)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
