@@ -86,32 +86,7 @@ def search_youtube_video_ids(clean_search):
                 return vids[:3]
     except Exception as e:
         app.logger.warning(f"Error scraping YouTube search: {e}")
-@app.route('/api/debug-probe')
-def debug_probe():
-    client = request.args.get('client', '')
-    js = request.args.get('js', '1')
-    cookies = request.args.get('cookies', '0')
-    test_vid = request.args.get('v', 'b-T_G_U4Wac')
-    test_url = f'https://www.youtube.com/watch?v={test_vid}'
-    
-    cmd = [*YT_DLP_CMD, '--simulate', '--verbose']
-    if js == '1' and shutil.which('node'):
-        cmd.extend(['--js-runtimes', 'node', '--remote-components', 'ejs:github'])
-    if client:
-        cmd.extend(['--extractor-args', f'youtube:player_client={client}'])
-    if cookies == '1':
-        cookies_path = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-        if os.path.exists(cookies_path):
-            cmd.extend(['--cookies', cookies_path])
-    cmd.append(test_url)
-    
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
-    return jsonify({
-        'cmd': cmd,
-        'returncode': p.returncode,
-        'stdout': p.stdout,
-        'stderr': p.stderr
-    })
+    return []
 
 # Concurrency & Spam Prevention
 active_downloads = set()       # Set of active user_ids downloading
