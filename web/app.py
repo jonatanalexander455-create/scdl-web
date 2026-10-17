@@ -69,6 +69,25 @@ def check_soundcloud_token_status(token):
     except Exception:
         return {'status': 'unknown', 'label': 'Token Tersimpan (Cek status offline)', 'plan': None, 'username': None}
 
+def search_youtube_video_ids(clean_search):
+    """Scrape YouTube web search directly with browser headers to bypass datacenter IP bot-check."""
+    try:
+        import urllib.parse
+        clean_q = urllib.parse.quote(clean_search)
+        url = f'https://www.youtube.com/results?search_query={clean_q}'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+        r = req.get(url, headers=headers, timeout=8)
+        if r.status_code == 200:
+            vids = list(dict.fromkeys(re.findall(r'\"videoId\":\"([a-zA-Z0-9_-]{11})\"', r.text)))
+            if vids:
+                return vids[:3]
+    except Exception as e:
+        app.logger.warning(f"Error scraping YouTube search: {e}")
+    return []
+
 # Concurrency & Spam Prevention
 active_downloads = set()       # Set of active user_ids downloading
 last_download_time = {}       # { user_id: timestamp }
@@ -884,6 +903,16 @@ def download():
     os.makedirs(job_dir, exist_ok=True)
     
     try:
+        def find_valid_audio(d):
+            valid_exts = ('.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac', '.ogg')
+            return [
+                os.path.join(d, f) for f in os.listdir(d)
+                if any(f.lower().endswith(ext) for ext in valid_exts)
+                and not f.endswith('.part') and not f.endswith('.ytdl')
+                and os.path.isfile(os.path.join(d, f))
+                and os.path.getsize(os.path.join(d, f)) > 10000
+            ]
+
         cmd = [
             *YT_DLP_CMD,
             '-x', '--audio-format', ytdl_format,
@@ -891,6 +920,7 @@ def download():
             '--retries', '1',
             '--fragment-retries', '1',
             '--concurrent-fragments', '5',
+            '--match-filter', "format_id !*= 'preview'",
         ]
         if audio_quality:
             cmd.extend(['--audio-quality', audio_quality])
@@ -913,26 +943,25 @@ def download():
 
         cmd.extend(['--', url])
 
-            
         # Run the command with timeout (240s for long mixes or playlists)
         process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
         
-        # Check if direct SoundCloud download hit DRM protection
+        # Check if direct SoundCloud download hit DRM protection or was skipped because preview
         is_drm = False
-        if process.returncode != 0:
-            err_output = process.stderr or process.stdout or ''
-            if 'DRM' in err_output or 'preview' in err_output:
-                is_drm = True
+        err_output = process.stderr or process.stdout or ''
+        if 'DRM' in err_output or 'preview' in err_output or 'does not pass filter' in (process.stdout or ''):
+            is_drm = True
 
         # If token caused failure on free/public track, retry once without token ONLY if not DRM
-        if process.returncode != 0 and clean_token and not is_drm:
+        if (process.returncode != 0 or not find_valid_audio(job_dir)) and clean_token and not is_drm:
             cmd_no_tok = [
                 *YT_DLP_CMD,
                 '-x', '--audio-format', ytdl_format,
-                '--socket-timeout', '15',
-                '--retries', '3',
-                '--fragment-retries', '3',
+                '--socket-timeout', '10',
+                '--retries', '1',
+                '--fragment-retries', '1',
                 '--concurrent-fragments', '5',
+                '--match-filter', "format_id !*= 'preview'",
             ]
             if audio_quality:
                 cmd_no_tok.extend(['--audio-quality', audio_quality])
@@ -945,19 +974,19 @@ def download():
                 cmd_no_tok.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
             cmd_no_tok.extend(['--', url])
             proc_no_tok = subprocess.run(cmd_no_tok, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=240)
-            if proc_no_tok.returncode == 0:
+            if proc_no_tok.returncode == 0 and find_valid_audio(job_dir):
                 process = proc_no_tok
 
-        if process.returncode != 0:
+        if process.returncode != 0 or not find_valid_audio(job_dir):
             err_output = process.stderr or process.stdout or ''
-            app.logger.info(f"Direct SoundCloud returned non-zero (is_drm={is_drm}), activating Smart Hybrid Mirror (YouTube). Stderr: {err_output[:200]}")
+            app.logger.info(f"Direct SoundCloud produced no valid audio (returncode={process.returncode}, is_drm={is_drm}), activating Smart Hybrid Mirror (YouTube)...")
             
             fallback_success = False
             meta = None
             
             # Step 1: Fetch official metadata & artwork from SoundCloud API
             try:
-                headers = {'User-Agent': 'Mozilla/5.0'}
+                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
                 if clean_token:
                     headers['Authorization'] = f'OAuth {clean_token}'
                 
@@ -1008,6 +1037,23 @@ def download():
             except Exception as e:
                 app.logger.warning(f"Error fetching SoundCloud metadata for mirror: {e}")
             
+            # Step 1b: If API failed (e.g. 401 without Go+), scrape track page HTML directly
+            if not meta or not meta.get('title'):
+                try:
+                    page_r = req.get(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}, timeout=6)
+                    if page_r.status_code == 200:
+                        og_title = re.search(r'<meta property="og:title" content="([^"]+)"', page_r.text)
+                        og_image = re.search(r'<meta property="og:image" content="([^"]+)"', page_r.text)
+                        if og_title:
+                            raw_title = og_title.group(1).replace('&#39;', "'").replace('&amp;', '&').replace('&quot;', '"').strip()
+                            parts = raw_title.split(' by ', 1)
+                            if len(parts) == 2:
+                                meta = {'title': parts[0].strip(), 'artist': parts[1].strip(), 'artwork_url': og_image.group(1) if og_image else None, 'duration_sec': 0}
+                            else:
+                                meta = {'title': raw_title, 'artist': '', 'artwork_url': og_image.group(1) if og_image else None, 'duration_sec': 0}
+                except Exception as e_page:
+                    app.logger.warning(f"Error scraping SoundCloud page HTML: {e_page}")
+
             if not meta or not meta.get('title'):
                 parts = [p for p in url.rstrip('/').split('/') if p and not p.startswith('http') and 'soundcloud.com' not in p]
                 uploader = ''
@@ -1023,21 +1069,6 @@ def download():
             if clean_search:
                 shutil.rmtree(job_dir, ignore_errors=True)
                 os.makedirs(job_dir, exist_ok=True)
-                
-                def find_valid_audio(d):
-                    valid_exts = ('.mp3', '.m4a', '.opus', '.flac', '.wav', '.aac', '.ogg')
-                    return [
-                        os.path.join(d, f) for f in os.listdir(d)
-                        if any(f.lower().endswith(ext) for ext in valid_exts)
-                        and not f.endswith('.part') and not f.endswith('.ytdl')
-                        and os.path.isfile(os.path.join(d, f))
-                        and os.path.getsize(os.path.join(d, f)) > 10000
-                    ]
-                
-                search_attempts = []
-                if duration_sec > 10:
-                    search_attempts.append((f"ytsearch3:{clean_search}", f"duration >= {max(1, duration_sec - 12)} & duration <= {duration_sec + 12}"))
-                search_attempts.append((f"ytsearch3:{clean_search}", None))
 
                 cookies_file = None
                 for cand_path in [
@@ -1063,9 +1094,8 @@ def download():
 
                 fallback_proc = None
 
-                # Primary search (Ultra-fast ~8s): android_sdkless,web_safari without cookies
-                for query, mf in search_attempts:
-                    yt_cmd = [
+                def build_yt_cmd(target):
+                    c = [
                         *YT_DLP_CMD,
                         '--no-playlist',
                         '--max-downloads', '1',
@@ -1075,56 +1105,50 @@ def download():
                         '--retries', '1',
                         '--fragment-retries', '1',
                         '--concurrent-fragments', '5',
-                        '--extractor-args', 'youtube:player_client=android_sdkless,web_safari',
                         '-f', '18/bestaudio/best',
                         '-x', '--audio-format', ytdl_format,
                         '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                     ]
+                    if shutil.which('node'):
+                        c.extend(['--js-runtimes', 'node', '--remote-components', 'ejs:github'])
+                    if cookies_file:
+                        c.extend(['--cookies', cookies_file])
                     if audio_quality:
-                        yt_cmd.extend(['--audio-quality', audio_quality])
-                    yt_cmd.extend([
+                        c.extend(['--audio-quality', audio_quality])
+                    c.extend([
                         '--embed-metadata',
                         '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
                     ])
                     if audio_format in ('mp3', 'flac', 'm4a'):
-                        yt_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
-                    if mf:
-                        yt_cmd.extend(['--match-filter', mf])
-                    yt_cmd.append(query)
-                    
-                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
+                        c.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
+                    c.append(target)
+                    return c
+
+                # Primary attempt: Direct YouTube video URLs from web scrape (bypasses datacenter bot-check)
+                direct_vids = search_youtube_video_ids(clean_search)
+                app.logger.info(f"Direct web scrape YouTube search found {len(direct_vids)} candidates for '{clean_search}'")
+
+                for vid in direct_vids:
+                    vid_url = f"https://www.youtube.com/watch?v={vid}"
+                    yt_cmd = build_yt_cmd(vid_url)
+                    if duration_sec > 10:
+                        yt_cmd.insert(-1, '--match-filter')
+                        yt_cmd.insert(-1, f"duration >= {max(1, duration_sec - 15)} & duration <= {duration_sec + 15}")
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
                     if find_valid_audio(job_dir):
                         break
 
-                # Secondary fallback: only if primary fast search didn't get audio
+                # If duration filter eliminated matches, retry first candidate without duration filter
+                if not find_valid_audio(job_dir) and direct_vids:
+                    vid_url = f"https://www.youtube.com/watch?v={direct_vids[0]}"
+                    yt_cmd = build_yt_cmd(vid_url)
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+
+                # Secondary fallback: only if direct scraping failed
                 if not find_valid_audio(job_dir):
-                    sec_cmd = [
-                        *YT_DLP_CMD,
-                        '--no-playlist',
-                        '--max-downloads', '1',
-                        '--ignore-errors',
-                        '--no-abort-on-error',
-                        '--socket-timeout', '10',
-                        '--retries', '1',
-                        '--fragment-retries', '1',
-                        '--concurrent-fragments', '5',
-                        '--extractor-args', 'youtube:player_client=mweb,web',
-                        '-f', '18/bestaudio/best',
-                        '-x', '--audio-format', ytdl_format,
-                        '--add-header', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    ]
-                    if audio_quality:
-                        sec_cmd.extend(['--audio-quality', audio_quality])
-                    sec_cmd.extend([
-                        '--embed-metadata',
-                        '-o', os.path.join(job_dir, '%(title)s.%(ext)s'),
-                    ])
-                    if audio_format in ('mp3', 'flac', 'm4a'):
-                        sec_cmd.extend(['--embed-thumbnail', '--convert-thumbnails', 'jpg'])
-                    if cookies_file:
-                        sec_cmd.extend(['--cookies', cookies_file])
-                    sec_cmd.append(f"ytsearch2:{clean_search}")
-                    fallback_proc = subprocess.run(sec_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=25)
+                    search_query = f"ytsearch2:{clean_search}"
+                    yt_cmd = build_yt_cmd(search_query)
+                    fallback_proc = subprocess.run(yt_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
                 
                 valid_files = find_valid_audio(job_dir)
                 if valid_files:
