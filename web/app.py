@@ -86,7 +86,35 @@ def search_youtube_video_ids(clean_search):
                 return vids[:3]
     except Exception as e:
         app.logger.warning(f"Error scraping YouTube search: {e}")
-    return []
+@app.route('/api/debug-probe')
+def debug_probe():
+    import urllib.parse
+    clean_search = request.args.get('q', 'ROMBE4T Jax s Groove')
+    
+    clean_q = urllib.parse.quote(clean_search)
+    url = f'https://www.youtube.com/results?search_query={clean_q}'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    r = req.get(url, headers=headers, timeout=8)
+    vids = list(dict.fromkeys(re.findall(r'\"videoId\":\"([a-zA-Z0-9_-]{11})\"', r.text)))
+    
+    test_vid = vids[0] if vids else 'b-T_G_U4Wac'
+    test_url = f'https://www.youtube.com/watch?v={test_vid}'
+    cmd = [*YT_DLP_CMD, '--simulate', '--verbose', test_url]
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
+    
+    return jsonify({
+        'yt_scrape_status': r.status_code,
+        'yt_scrape_len': len(r.text),
+        'vids': vids[:5],
+        'test_url': test_url,
+        'ytdl_returncode': p.returncode,
+        'ytdl_stdout': p.stdout,
+        'ytdl_stderr': p.stderr,
+        'has_node': bool(shutil.which('node')),
+    })
 
 # Concurrency & Spam Prevention
 active_downloads = set()       # Set of active user_ids downloading
